@@ -135,7 +135,41 @@ not just written and assumed correct.
 
 ---
 
-## 7. Long-term aim
+## 7. Hosting & deployment
+
+This project has two very different hosting needs, easy to conflate:
+
+- **`scanner.js` needs an always-on process**, not a typical web host. It's
+  an infinite polling loop holding a wallet key in memory — incompatible
+  with serverless platforms (Vercel, Netlify) that spin functions up
+  per-request. It needs a persistent server: a small VPS, or a platform
+  with a background-worker service type (Railway, Render, Fly.io).
+
+- **The Next.js UI** would normally be a natural fit for Vercel — except the
+  plan relies on SQLite as a file shared between the scanner and the UI's
+  API routes. Vercel's filesystem is ephemeral and not shared across hosts,
+  so Vercel specifically is the wrong fit here — not because of Next.js,
+  but because of that SQLite coupling.
+
+**Simplest real setup for a solo project:** don't split hosts. Run
+`scanner.js` and the Next.js app (in persistent mode, not serverless
+functions) together on one machine — either a single small VPS (~$5–6/mo,
+run both processes with `pm2`) or a platform like Railway/Render supporting
+multiple persistent services plus a mounted volume for the SQLite file
+within one project. Same filesystem, no cross-host file-sharing problem.
+
+**Security note that matters once this is real, not local:** whatever host
+runs `scanner.js` holds `PRIVATE_KEY` in its environment. That wallet should
+be a dedicated hot wallet funded only with what the bot needs to operate —
+never a main wallet — regardless of how secure the host claims to be.
+
+This isn't an urgent decision — relevant once Sepolia (or later, an L2) is
+actually live and something needs to run continuously rather than on a
+local machine.
+
+---
+
+## 8. Long-term aim
 
 Right now this is a single-pair, single-chain-target learning project built
 to be understood end-to-end, not a black box. The near-term path is: Sepolia
