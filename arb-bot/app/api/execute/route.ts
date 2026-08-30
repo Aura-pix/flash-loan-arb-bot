@@ -3,10 +3,17 @@ import { requestFlashLoan } from '../../../lib/contract';
 
 export async function POST(request: Request) {
   try {
-    const txHash = await requestFlashLoan();
+    let amount: string | undefined;
+    let buyOnA: boolean | undefined;
+    try {
+      const body = await request.json();
+      amount = body.amount;
+      buyOnA = body.buyOnA;
+    } catch {}
+    const txHash = await requestFlashLoan(amount, buyOnA);
     return NextResponse.json({ txHash, status: 'submitted' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to trigger execution:', error);
-    return NextResponse.json({ error: 'Failed to trigger execution' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to trigger execution' }, { status: 500 });
   }
 }

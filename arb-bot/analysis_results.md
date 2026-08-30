@@ -104,11 +104,11 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 **Current state: Phases 1–4 done, 5–6 pending.**
 
 - Next.js 16.3.1 with App Router, React 19, TypeScript, Tailwind CSS v4
-- `app/layout.tsx` — 0xAurora header + StatusRing + Navigation
-- `app/page.tsx` — Dashboard 3-card grid (Bot Status / Network / Wallet) static, prerendered
+- `app/layout.tsx` — 0xAurora header + StatusRing (live 10s) + Navigation
+- `app/page.tsx` — Dashboard 3-card grid live via `/api/status` (fallback hardcoded), dry-run badge
 - `app/logs/page.tsx` + `components/LogsTable.tsx` — reads `runs` from SQLite via `/api/logs`, 5s polling, handles `dry_run` badge
 - `app/scanner/page.tsx` + `components/ScannerFeed.tsx` — reads `scans` from SQLite via `/api/scans`, 10s polling
-- `app/execute/page.tsx` + `components/StepsBreakdown.tsx` — mock execution via `lib/contract.ts` activeSimulations (Phase 5 real wiring pending)
+- `app/execute/page.tsx` + `components/StepsBreakdown.tsx` — real execution via `lib/contract.ts` (receipt + `StepCompleted` parsing, `dry_run` + simulation fallback) with 1s polling
 - `lib/db.ts` — `scans` + `runs` tables (better-sqlite3), `lib/events.ts` — `recordScan`/`recordRun` ingestion
 - `scanner-service/scanner.js` — standalone writer to `bot_data.sqlite` with `DRY_RUN` support
 
@@ -118,7 +118,7 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 | `/execute` | Trigger `requestFlashLoan`, live step-by-step breakdown | 🟡 Mock done, real streaming Phase 5 |
 | `/logs` | Historical run table from SQLite | ✅ Live from DB |
 | `/scanner` | Live scanner feed from SQLite | ✅ Live from DB |
-| `API routes` | `/api/status` (placeholder), `/api/execute`, `/api/logs`, `/api/scans` | ✅ 3/4 live, `/api/status` placeholder |
+| `API routes` | `/api/status` + `/api/execute` + `/api/execute/status` + `/api/logs` + `/api/scans` | ✅ All live — `/api/status` returns wallet/balances/lastScan/lastRun |
 
 **Design language:** Dense instrument panel — deep slate (`#12151C`), copper accent (`#C08A3E`), Space Grotesk + Inter + JetBrains Mono. Signature element: live status ring (Phase 6).
 
@@ -132,8 +132,8 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 | 2 | Static Dashboard | ✅ Done — `/` prerendered |
 | 3 | SQLite ingestion + Dry-run | ✅ Done — `DRY_RUN` + `bot_data.sqlite` writes verified (2 scans + 1 dry_run inserted) |
 | 4 | Logs + Scanner feed (alive) | ✅ Done — 5s/10s polling, `dry_run` badge |
-| 5 | Execute panel + live steps | 🟡 In progress — mock `activeSimulations` |
-| 6 | Status ring + polish | ⬜ Pending |
+| 5 | Execute panel + live steps | ✅ Done — real `ethers` + `StepCompleted` parsing, `dry_run` path, simulation fallback, DB writes |
+| 6 | Status ring + polish | ✅ Done — 10s ring, live `/api/status` + Dashboard balances, dry-run badge |
 | — | Contract logic | ✅ Complete, direction bug fixed |
 | — | Scanner core | ✅ Complete + `DRY_RUN` added |
 | — | Forked mainnet validation | ✅ Verified profitable (+0.0107 WETH) |

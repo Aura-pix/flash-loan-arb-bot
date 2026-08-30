@@ -150,7 +150,7 @@ These map directly to the events already built into the contract and `scanner.js
 | 2 | **Static Dashboard** — status/network/balance cards hardcoded | ✅ Done | `app/page.tsx:1`, `○ /` prerendered |
 | 3 | **SQLite + log ingestion + Dry-run** | ✅ Done | `lib/db.ts:1` + `lib/events.ts:1` + `contracts/scripts/scanner.js:6` `DRY_RUN` + `arb-bot/scanner-service/scanner.js:1`. Dry-run: scanner computes spread/sizing/profit and logs `dry_run_would_execute` without sending tx — useful on Sepolia thin liquidity. Verified via `bot_data.sqlite` inserts |
 | 4 | **Logs table + Scanner feed** | ✅ Done | `GET /api/logs` + `/api/scans` → SQLite, `LogsTable.tsx:1` (5s poll, `dry_run` badge) + `ScannerFeed.tsx:1` (10s poll) — first "alive" milestone |
-| 5 | **Execute panel** | 🟡 In progress | `lib/contract.ts:1` still mock `activeSimulations`, `StepsBreakdown.tsx:1` polls `/api/execute/status` — needs real `ethers` + `StepCompleted` streaming |
-| 6 | **Status ring + polish** | ⬜ Pending | `StatusRing.tsx:1` static pulse — needs 10s cycle fill + opportunity color-shift + wallet live wiring |
+| 5 | **Execute panel** | ✅ Done | `lib/contract.ts:1` real `ethers` + `StepCompleted`/`ArbitrageResult` parsing, `app/api/execute/route.ts:1` + `status/route.ts:1`, `StepsBreakdown.tsx:1` with `dry_run` handling + 1s polling. Simulation fallback when no wallet/RPC |
+| 6 | **Status ring + polish** | ✅ Done | `StatusRing.tsx:1` 10s SVG ring + `good`/`accent` shift + `Dry-run` label, `app/api/status/route.ts:1` live + `app/page.tsx:1` live balances |
 
 Start with 1–2 and come back anytime you hit a Next.js concept the tutorials don't make click — happy to explain App Router routing, server vs client components, or API routes in plain terms as you go.

@@ -19,7 +19,7 @@ const ALL_STEPS: { id: StepName; label: string }[] = [
 
 export default function StepsBreakdown() {
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'reverted'>('idle');
+  const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'reverted' | 'dry_run'>('idle');
   const [completedSteps, setCompletedSteps] = useState<StepData[]>([]);
 
   const triggerExecution = async () => {
@@ -40,7 +40,7 @@ export default function StepsBreakdown() {
   };
 
   useEffect(() => {
-    if (!txHash || status === 'success' || status === 'reverted') return;
+    if (!txHash || status === 'success' || status === 'reverted' || status === 'dry_run') return;
 
     const interval = setInterval(async () => {
       try {
@@ -78,7 +78,7 @@ export default function StepsBreakdown() {
             Executing on-chain
           </div>
         )}
-        {(status === 'success' || status === 'reverted') && (
+        {(status === 'success' || status === 'reverted' || status === 'dry_run') && (
           <button 
             onClick={() => { setStatus('idle'); setTxHash(null); setCompletedSteps([]); }}
             className="text-ink-dim hover:text-ink text-sm font-bold uppercase tracking-widest underline decoration-line underline-offset-4 cursor-pointer"
@@ -127,6 +127,24 @@ export default function StepsBreakdown() {
             Arbitrage Successful
           </div>
           <div className="font-mono text-xs text-ink-dim">TxHash: <span className="text-ink">{txHash}</span></div>
+        </div>
+      )}
+      {status === 'dry_run' && (
+        <div className="mt-4 p-5 border border-accent/30 bg-accent/5 rounded-sm flex flex-col gap-3">
+          <div className="text-accent font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01" /></svg>
+            Dry-Run — No Transaction Sent
+          </div>
+          <div className="font-mono text-xs text-ink-dim">DRY_RUN=true — sizing/profit logged, would have executed with these steps. TxHash: <span className="text-ink">{txHash}</span></div>
+        </div>
+      )}
+      {status === 'reverted' && (
+        <div className="mt-4 p-5 border border-bad/30 bg-bad/5 rounded-sm flex flex-col gap-3">
+          <div className="text-bad font-bold uppercase tracking-widest text-sm flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            Execution Reverted
+          </div>
+          <div className="font-mono text-xs text-ink-dim">TxHash: <span className="text-ink">{txHash || '—'}</span></div>
         </div>
       )}
     </div>

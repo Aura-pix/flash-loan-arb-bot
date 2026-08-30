@@ -24,7 +24,7 @@ unhedged position.
   gas-aware threshold. Logs every scan and every execution as structured JSON.
   Now supports `DRY_RUN=true` (logs `dry_run_would_execute` without sending a tx) and SQLite ingestion.
 - **UI** — dashboard, execute panel, logs table, scanner feed.
-  Scaffold + tokens + layout done (Phase 1), static Dashboard done (Phase 2), SQLite ingestion + dry-run done (Phase 3), Logs + Scanner feed wired to SQLite with live polling done (Phase 4). Remaining: Execute live streaming (Phase 5) + status ring polish (Phase 6). Full spec in `UI SPECS.md`.
+  Phases 1-6 done: scaffold, Dashboard (live via `/api/status`), SQLite ingestion + dry-run, Logs/Scanner live (polling), Execute live streaming (real `ethers` + `StepCompleted` parsing), Status ring (10s cycle) + polish. Full spec in `UI SPECS.md`.
 
 **Why the loan size and profit threshold aren't fixed numbers:** loan size is
 capped at a % of the shallower pool's liquidity (avoids self-inflicted
@@ -74,8 +74,8 @@ not just written and assumed correct.
 | **Phase 2** | Static Dashboard — status/network/balance cards (hardcoded layout) | ✅ Done — `app/page.tsx:1` 3-card grid, `/` prerendered |
 | **Phase 3** | SQLite + log ingestion + Dry-run | ✅ Done — `lib/db.ts:1` scans/runs tables, `lib/events.ts:1` ingestion helpers, `contracts/scripts/scanner.js:6` `DRY_RUN` flag + DB mirror, `arb-bot/scanner-service/scanner.js:1` standalone writer. Verified with `bot_data.sqlite` inserts |
 | **Phase 4** | Logs table + Scanner feed (first alive milestone) | ✅ Done — `app/api/logs/route.ts:1` + `app/api/scans/route.ts:1` read SQLite, `components/LogsTable.tsx:1` + `ScannerFeed.tsx:1` with 5s/10s polling, `dry_run` badge |
-| **Phase 5** | Execute panel with live step breakdown | 🟡 In progress — mock `lib/contract.ts:1` + `StepsBreakdown.tsx:1` + polling exists, needs real `ethers` + `StepCompleted` event streaming |
-| **Phase 6** | Status ring + polish | ⬜ Pending — `components/StatusRing.tsx:1` static pulse, `app/api/status/route.ts:1` placeholder, needs live 10s cycle + wallet-balance wiring |
+| **Phase 5** | Execute panel with live step breakdown | ✅ Done — `lib/contract.ts:1` real `ethers` provider/wallet/contract, `requestFlashLoan` with receipt + `StepCompleted`/`ArbitrageResult` parsing, `activeSimulations` + DB `runs` insert, `app/api/execute/route.ts:1` + `status/route.ts:1`, `components/StepsBreakdown.tsx:1` handles `dry_run`/`success`/`reverted` + polling. Falls back to simulation when no `PRIVATE_KEY`/RPC (dev without node) |
+| **Phase 6** | Status ring + polish | ✅ Done — `components/StatusRing.tsx:1` 10s circular progress + opportunity (`good`) / executing (`accent`) color-shift, `app/api/status/route.ts:1` live wallet/balances + `lastScan`/`lastRun`, `app/page.tsx:1` live balances via `/api/status` (fallback to hardcoded) + dry-run badge |
 
 **Before Sepolia deployment (still parked):**
 
