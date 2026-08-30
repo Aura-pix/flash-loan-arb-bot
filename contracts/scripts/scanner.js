@@ -22,16 +22,13 @@ const CONFIG = {
     rpcUrl: process.env.SEPOLIA_RPC_URL || "",
     WETH: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
     USDC: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-    SUSHISWAP_ROUTER: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
-    // Uniswap V2 has no official Sepolia deployment — the deployed contract
-    // uses the SushiSwap router for both dexA and dexB, so this scanner does
-    // too. Spread will always read 0% as a result; that's expected, not a
-    // bug (see project-roadmap.md's known limitations).
-    UNISWAPV2_ROUTER: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
-    // Factory addresses resolved dynamically via router.factory() below —
-    // no need to hardcode/verify a separate factory address per network.
-    SUSHI_FACTORY: "",
-    UNI_FACTORY: "",
+    // Correct Sepolia deployments — previous 0xd9e1...B9F is mainnet-only (no code on Sepolia -> factory() BAD_DATA)
+    // Uniswap V2 Sepolia official: factory 0xF62c03E08ada871A0bEb309762E260a7a6a880E6 router 0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3
+    // Sushi Sepolia: router 0xeaBcE3E74EF41FB40024a21Cc2ee2F5dDc615791 factory 0x734583f62Bb6ACe3c9bA9bd5A53143CA2Ce8C55A
+    SUSHISWAP_ROUTER: "0xeaBcE3E74EF41FB40024a21Cc2ee2F5dDc615791",
+    UNISWAPV2_ROUTER: "0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3",
+    SUSHI_FACTORY: "0x734583f62Bb6ACe3c9bA9bd5A53143CA2Ce8C55A",
+    UNI_FACTORY: "0xF62c03E08ada871A0bEb309762E260a7a6a880E6",
     CONTRACT_ADDRESS: "0x77EC85E9b7fBcE5365a234F6FE826d7740FB517f",
   },
 };
@@ -102,21 +99,58 @@ const uniRouter = new ethers.Contract(
   provider,
 );
 
-// Resolve factory addresses dynamically from each router when not explicitly
-// hardcoded in CONFIG — avoids needing to hunt down and verify a separate
-// factory address per network (every standard router exposes factory()).
-const sushiFactoryAddress = cfg.SUSHI_FACTORY || (await sushiRouter.factory());
-const uniFactoryAddress = cfg.UNI_FACTORY || (await uniRouter.factory());
-const sushiFactory = new ethers.Contract(
-  sushiFactoryAddress,
-  FACTORY_ABI,
-  provider,
-);
-const uniFactory = new ethers.Contract(
-  uniFactoryAddress,
-  FACTORY_ABI,
-  provider,
-);
+// Helper to resolve factory safely — checks on-chain code first and
+// falls back to CONFIG value so missing-router doesn't crash at import time
+// with `could not decode result data (BAD_DATA)`.
+async function resolveFactory(router, hardcodedFactory, label) {
+  if (hardcodedFactory) {
+    // Verify hardcoded factory actually has code
+    const code = await provider.getCode(hardcodedFactory);
+    if (code === "0x") {
+      log("factory_no_code", { label, address: hardcodedFactory });
+    }
+    return hardcodedFactory;
+  }
+  try {
+    const code = await provider.getCode(await router.getAddress());
+    if (code === "0x") {
+      log("router_no_code", { label, address: await router.getAddress() });
+      throw new Error(`${label} router has no code at ${await router.getAddress()} on ${NETWORK}`);
+    }
+    return await router.factory();
+  } catch (err) {
+    log("factory_resolve_failed", { label, message: err.message });
+    throw err;
+  }
+}
+
+let sushiFactory;
+let uniFactory;
+
+async function initFactories() {
+  const sushiFactoryAddress = await resolveFactory(sushiRouter, cfg.SUSHI_FACTORY, "sushi");
+  const uniFactoryAddress = await resolveFactory(uniRouter, cfg.UNI_FACTORY, "uni");
+  sushiFactory = new ethers.Contract(sushiFactoryAddress, FACTORY_ABI, provider);
+  uniFactory = new ethers.Contract(uniFactoryAddress, FACTORY_ABI, provider);
+
+  // Sanity check contract's dexA/dexB match scanner config — otherwise
+  // requestFlashLoan will revert on-chain (contract tries to swap on dead router)
+  try {
+    const abi2 = ["function dexA() view returns(address)", "function dexB() view returns(address)"];
+    const c = new ethers.Contract(cfg.CONTRACT_ADDRESS, abi2, provider);
+    const [dexA, dexB] = await Promise.all([c.dexA(), c.dexB()]);
+    if (dexA.toLowerCase() !== cfg.SUSHISWAP_ROUTER.toLowerCase() || dexB.toLowerCase() !== cfg.UNISWAPV2_ROUTER.toLowerCase()) {
+      log("contract_dex_mismatch", {
+        contractDexA: dexA,
+        contractDexB: dexB,
+        scannerSushiRouter: cfg.SUSHISWAP_ROUTER,
+        scannerUniRouter: cfg.UNISWAPV2_ROUTER,
+        hint: "Redeploy contract with correct Sepolia routers — current on-chain dexA/B will revert",
+      });
+    }
+  } catch {}
+}
+
 const contract = new ethers.Contract(
   cfg.CONTRACT_ADDRESS,
   CONTRACT_ABI,
@@ -333,6 +367,15 @@ async function scan() {
   }
 }
 
-log("bot_started", { wallet: wallet.address, contract: cfg.CONTRACT_ADDRESS });
-scan();
-setInterval(scan, 10000);
+async function start() {
+  log("bot_started", { wallet: wallet.address, contract: cfg.CONTRACT_ADDRESS });
+  try {
+    await initFactories();
+  } catch (e) {
+    log("init_failed", { message: e.message });
+    process.exit(1);
+  }
+  await scan();
+  setInterval(scan, 10000);
+}
+start();

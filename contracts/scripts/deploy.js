@@ -19,7 +19,9 @@ const artifact = JSON.parse(
 const SEPOLIA = {
   WETH: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
   USDC: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-  SUSHISWAP_ROUTER: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
+  // Fixed Sepolia routers — 0xd9e1...B9F is mainnet-only (no code on Sepolia)
+  SUSHISWAP_ROUTER: "0xeaBcE3E74EF41FB40024a21Cc2ee2F5dDc615791",
+  UNISWAP_ROUTER: "0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3",
 };
 
 async function main() {
@@ -41,9 +43,11 @@ async function main() {
     wallet,
   );
   console.log("\nDeploying FlashLoanReceiver...");
+  console.log(` dexA (Sushi):  ${SEPOLIA.SUSHISWAP_ROUTER}`);
+  console.log(` dexB (UniV2):  ${SEPOLIA.UNISWAP_ROUTER}`);
   const contract = await factory.deploy(
     SEPOLIA.SUSHISWAP_ROUTER,
-    SEPOLIA.SUSHISWAP_ROUTER,
+    SEPOLIA.UNISWAP_ROUTER,
     SEPOLIA.USDC,
   );
   await contract.waitForDeployment();
