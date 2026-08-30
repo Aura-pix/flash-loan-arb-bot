@@ -138,8 +138,8 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 | — | Scanner core | ✅ Complete + `DRY_RUN` added |
 | — | Forked mainnet validation | ✅ Verified profitable (+0.0107 WETH) |
 | — | Sepolia deployment | ⏸️ Parked — addresses now filled (`contracts/scripts/scanner.js:21`), but on-chain `0x77EC85…` still `dexA/B=0xd9e1…` mismatch; needs redeploy + `sushiLiq ~499` thin |
-| — | Automated tests | ❌ None — manual only |
-| — | MEV protection | ❌ Not implemented (parked) |
+| — | Automated tests | ✅ Contract 8 Solidity tests (`contracts/FlashLoanReceiver.t.sol:1`, `npm test` 8 passing) — scanner JS still manual |
+| — | MEV protection | ❌ Not implemented (parked until pre-Arbitrum) |
 
 ---
 

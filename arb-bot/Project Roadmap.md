@@ -110,17 +110,14 @@ not just written and assumed correct.
 - **Single-pair static config.** Every address is hand-configured per
   network. Adding a new pair or a new DEX currently means editing config by
   hand, not a UI toggle.
-- **No automated tests.** All validation so far has been manual runs against
-  a forked node. A real test suite (Hardhat's `test/` folder, currently
-  empty) would catch regressions like the direction bug automatically
-  instead of relying on manually noticing something's off.
+- **No automated tests (now fixed for contract).** `contracts/contracts/FlashLoanReceiver.t.sol:1` + `mocks/` + `npm test` — 8 Solidity tests (`testDeploy`, `onlyOwner`, `slippage`, `buyOnA` direction, `Not Balancer`, `withdraw`, `nonReentrant`, `profitableExecution`) via `hardhat test solidity`. Scanner JS unit tests still parked.
 
 ---
 
 ## 6. Possible improvements (not committed, just worth having on record)
 
-- Automated test suite covering both the happy path and the failure modes
-  already discovered manually (reentrancy, direction, insufficient balance)
+- ~~Automated test suite~~ ✅ Done for contract (`FlashLoanReceiver.t.sol` 8 tests) — scanner JS tests still parked
+  (reentrancy, direction, insufficient balance already covered)
 - Multi-pair support (WBTC/USDC, etc.) and a config-driven way to add pairs
   without touching scanner logic
 - More DEXes per chain (Curve, Balancer pools themselves, on an L2)
