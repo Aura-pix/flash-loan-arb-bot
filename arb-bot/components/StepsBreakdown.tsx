@@ -21,6 +21,11 @@ export default function StepsBreakdown() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'reverted' | 'dry_run'>('idle');
   const [completedSteps, setCompletedSteps] = useState<StepData[]>([]);
+  const [dryRun, setDryRun] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/status").then(r => r.json()).then(d => setDryRun(!!d.dryRun)).catch(() => setDryRun(false));
+  }, []);
 
   const triggerExecution = async () => {
     setStatus('pending');
@@ -68,8 +73,9 @@ export default function StepsBreakdown() {
           <button 
             onClick={triggerExecution}
             className="bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 px-6 py-2 rounded-sm font-bold text-sm tracking-widest uppercase transition-colors cursor-pointer"
+            title={dryRun ? "DRY_RUN=true — no gas, logs dry_run_would_execute to DB" : "Live execution — will send requestFlashLoan on-chain"}
           >
-            Trigger Manual Run
+            {dryRun === null ? "Trigger Manual Run" : dryRun ? "Trigger Dry-Run" : "Trigger Live Run"}
           </button>
         )}
         {status === 'pending' && (
