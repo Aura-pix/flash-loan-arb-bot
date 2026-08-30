@@ -142,15 +142,15 @@ These map directly to the events already built into the contract and `scanner.js
 
 ---
 
-## 4. Build roadmap
+## 4. Build roadmap — with status
 
-Rough order — each phase is small enough to finish with a tutorial + a few questions to me, not a multi-week grind.
-
-1. **Scaffold** — `create-next-app`, TypeScript, Tailwind. Set up `globals.css` with the token table above as CSS variables. Get `layout.tsx` + empty Dashboard page rendering.
-2. **Static Dashboard** — bot status card, wallet balance (read-only ethers call), network selector UI (Sepolia only for now). No live data yet — hardcode, get the layout right.
-3. **SQLite + log ingestion** — point `scanner.js`'s JSON log lines at a SQLite file (append rows on each `log()` call, or a tiny separate script that tails stdout). This unblocks Logs and Scanner Feed.
-4. **Logs table + Scanner feed** — `GET /api/logs`, `GET /api/scans`, render as tables. This is the easiest "feels real" milestone — do this before Execute panel.
-5. **Execute panel** — the hard one. `POST /api/execute` calls `requestFlashLoan`, then either polls the tx receipt or (better, once comfortable) listens for the contract's `StepCompleted` events and streams them to the client via a simple polling interval or SSE.
-6. **Status ring + polish** — the signature element last, once real data is flowing through everything it's supposed to visualize.
+| # | Phase | Status | Notes |
+|---|-------|--------|-------|
+| 1 | **Scaffold** — `create-next-app`, TS, Tailwind, `globals.css` tokens, `layout.tsx` | ✅ Done | `app/layout.tsx:1`, `globals.css:1`, build passes |
+| 2 | **Static Dashboard** — status/network/balance cards hardcoded | ✅ Done | `app/page.tsx:1`, `○ /` prerendered |
+| 3 | **SQLite + log ingestion + Dry-run** | ✅ Done | `lib/db.ts:1` + `lib/events.ts:1` + `contracts/scripts/scanner.js:6` `DRY_RUN` + `arb-bot/scanner-service/scanner.js:1`. Dry-run: scanner computes spread/sizing/profit and logs `dry_run_would_execute` without sending tx — useful on Sepolia thin liquidity. Verified via `bot_data.sqlite` inserts |
+| 4 | **Logs table + Scanner feed** | ✅ Done | `GET /api/logs` + `/api/scans` → SQLite, `LogsTable.tsx:1` (5s poll, `dry_run` badge) + `ScannerFeed.tsx:1` (10s poll) — first "alive" milestone |
+| 5 | **Execute panel** | 🟡 In progress | `lib/contract.ts:1` still mock `activeSimulations`, `StepsBreakdown.tsx:1` polls `/api/execute/status` — needs real `ethers` + `StepCompleted` streaming |
+| 6 | **Status ring + polish** | ⬜ Pending | `StatusRing.tsx:1` static pulse — needs 10s cycle fill + opportunity color-shift + wallet live wiring |
 
 Start with 1–2 and come back anytime you hit a Next.js concept the tutorials don't make click — happy to explain App Router routing, server vs client components, or API routes in plain terms as you go.

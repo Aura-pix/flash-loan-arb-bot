@@ -66,14 +66,14 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 
 | Feature | Detail |
 |---|---|
-| **Network support** | `anvil-fork` (default, local) and `sepolia` (placeholder addresses, unfilled) |
+| **Network support** | `anvil-fork` (default, local) and `sepolia` (addresses filled `contracts/scripts/scanner.js:21`, on-chain dex mismatch still pending redeploy) |
 | **Pool depth check** | Fetches reserves from both factories, skips if either pool has < $100k USDC liquidity |
 | **Dynamic loan sizing** | `POOL_PCT` (1%) of the shallower pool's WETH reserve, clamped to [0.05, 5] WETH |
 | **Profit estimation** | Accounts for 0.3% DEX fee **AND** full slippage tolerance per swap — deliberately pessimistic |
 | **Gas-aware threshold** | `gasCost × safetyMultiplier` vs `MIN_PROFIT_FLOOR_WETH` — recalculated every scan |
 | **Direction fix** | `buyOnA = !buyOnSushi` — inverts the scanner's "buy on Sushi" signal to match the contract's "sell on dexA first" semantics |
 | **Auto-withdraw** | After a successful arb, immediately calls `contract.withdraw(WETH)` to sweep profit to wallet |
-| **Structured logging** | Every event emitted as JSON (`bot_started`, `scan_checked`, `opportunity_found`, `execute_start`, `execute_success`, etc.) — designed for the UI to consume later |
+| **Structured logging** | Every event emitted as JSON (`bot_started`, `scan_checked`, `opportunity_found`, `execute_start`, `execute_success`, etc.) + SQLite via `lib/events.ts` + `DRY_RUN` (`dry_run_would_execute`) |
 
 **Configuration (all env-tunable):**
 
@@ -101,38 +101,45 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 
 ### 4. UI — [`arb-bot/`](file:///c:/Users/HOME%20PC/Desktop/Arbitrage%20bot/arb-bot)
 
-**Current state: Create Next App boilerplate — no custom UI built yet.**
+**Current state: Phases 1–4 done, 5–6 pending.**
 
 - Next.js 16.3.1 with App Router, React 19, TypeScript, Tailwind CSS v4
-- [page.tsx](file:///c:/Users/HOME%20PC/Desktop/Arbitrage%20bot/arb-bot/app/page.tsx) is the default "Get started" template
-- [globals.css](file:///c:/Users/HOME%20PC/Desktop/Arbitrage%20bot/arb-bot/app/globals.css) has basic light/dark theme variables
+- `app/layout.tsx` — 0xAurora header + StatusRing + Navigation
+- `app/page.tsx` — Dashboard 3-card grid (Bot Status / Network / Wallet) static, prerendered
+- `app/logs/page.tsx` + `components/LogsTable.tsx` — reads `runs` from SQLite via `/api/logs`, 5s polling, handles `dry_run` badge
+- `app/scanner/page.tsx` + `components/ScannerFeed.tsx` — reads `scans` from SQLite via `/api/scans`, 10s polling
+- `app/execute/page.tsx` + `components/StepsBreakdown.tsx` — mock execution via `lib/contract.ts` activeSimulations (Phase 5 real wiring pending)
+- `lib/db.ts` — `scans` + `runs` tables (better-sqlite3), `lib/events.ts` — `recordScan`/`recordRun` ingestion
+- `scanner-service/scanner.js` — standalone writer to `bot_data.sqlite` with `DRY_RUN` support
 
-**Planned (per [UI SPECS.md](file:///c:/Users/HOME%20PC/Desktop/Arbitrage%20bot/arb-bot/UI%20SPECS.md)):**
+| Page | Purpose | Status |
+|---|---------|--------|
+| `/` (Dashboard) | Bot status, wallet balance, network selector, live status ring | ✅ Static done, live wiring Phase 6 |
+| `/execute` | Trigger `requestFlashLoan`, live step-by-step breakdown | 🟡 Mock done, real streaming Phase 5 |
+| `/logs` | Historical run table from SQLite | ✅ Live from DB |
+| `/scanner` | Live scanner feed from SQLite | ✅ Live from DB |
+| `API routes` | `/api/status` (placeholder), `/api/execute`, `/api/logs`, `/api/scans` | ✅ 3/4 live, `/api/status` placeholder |
 
-| Page | Purpose |
-|---|---|
-| `/` (Dashboard) | Bot status, wallet balance, network selector, live status ring |
-| `/execute` | Trigger `requestFlashLoan`, live step-by-step breakdown via `StepCompleted` events |
-| `/logs` | Historical run table from SQLite |
-| `/scanner` | Live scanner feed from SQLite |
-| `API routes` | `/api/status`, `/api/execute`, `/api/logs`, `/api/scans` |
-
-**Design language:** Dense instrument panel aesthetic — deep slate (`#12151C`), copper accent (`#C08A3E`), Space Grotesk + Inter + JetBrains Mono. Signature element: live status ring.
+**Design language:** Dense instrument panel — deep slate (`#12151C`), copper accent (`#C08A3E`), Space Grotesk + Inter + JetBrains Mono. Signature element: live status ring (Phase 6).
 
 ---
 
-## Project Status
+## Project Status — by Phase (updated 2026-08-30)
 
-| Area | Status |
-|---|---|
-| Contract logic | ✅ Complete, tested, direction bug fixed |
-| Scanner (off-chain) | ✅ Complete, tested on forked mainnet |
-| Forked mainnet validation | ✅ Verified profitable (+0.0107 WETH) |
-| Sepolia deployment | ⏸️ Parked — addresses unfilled, needs primary dev machine |
-| Next.js UI | 🟡 Scaffolded only — boilerplate, no custom pages |
-| SQLite integration | ❌ Not started |
-| Automated tests | ❌ None — all validation manual |
-| MEV protection | ❌ Not implemented (acknowledged risk) |
+| Phase | Area | Status |
+|-------|------|--------|
+| 1 | Scaffold + tokens/layout | ✅ Done — build passes |
+| 2 | Static Dashboard | ✅ Done — `/` prerendered |
+| 3 | SQLite ingestion + Dry-run | ✅ Done — `DRY_RUN` + `bot_data.sqlite` writes verified (2 scans + 1 dry_run inserted) |
+| 4 | Logs + Scanner feed (alive) | ✅ Done — 5s/10s polling, `dry_run` badge |
+| 5 | Execute panel + live steps | 🟡 In progress — mock `activeSimulations` |
+| 6 | Status ring + polish | ⬜ Pending |
+| — | Contract logic | ✅ Complete, direction bug fixed |
+| — | Scanner core | ✅ Complete + `DRY_RUN` added |
+| — | Forked mainnet validation | ✅ Verified profitable (+0.0107 WETH) |
+| — | Sepolia deployment | ⏸️ Parked — addresses now filled (`contracts/scripts/scanner.js:21`), but on-chain `0x77EC85…` still `dexA/B=0xd9e1…` mismatch; needs redeploy + `sushiLiq ~499` thin |
+| — | Automated tests | ❌ None — manual only |
+| — | MEV protection | ❌ Not implemented (parked) |
 
 ---
 
