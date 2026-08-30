@@ -44,7 +44,7 @@ const CONFIG = {
   arbitrum: {
     rpcUrl: process.env.ARBITRUM_RPC_URL || "",
     WETH: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-    USDC: "0xFF970A64a04b2c50Ca2B3a27AffecA216E196Ec", // USDC.e on Arbitrum (V2 pools, 168k liquidity)
+    USDC: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", // USDC native on Arbitrum (both Sushi 0x57b... and Uni 0xF64... pools exist)
     // Arbitrum One: Sushi 0x1b02..., UniV2 0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24 (factory 0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9)
     SUSHISWAP_ROUTER: "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
     UNISWAPV2_ROUTER: "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24",
@@ -156,27 +156,25 @@ async function initFactories() {
 
   // Sanity check contract's dexA/dexB match scanner config — otherwise
   // requestFlashLoan will revert on-chain (contract tries to swap on dead router)
-  try {
-    const abi2 = ["function dexA() view returns(address)", "function dexB() view returns(address)"];
-    const c = new ethers.Contract(cfg.CONTRACT_ADDRESS, abi2, provider);
-    const [dexA, dexB] = await Promise.all([c.dexA(), c.dexB()]);
-    if (dexA.toLowerCase() !== cfg.SUSHISWAP_ROUTER.toLowerCase() || dexB.toLowerCase() !== cfg.UNISWAPV2_ROUTER.toLowerCase()) {
-      log("contract_dex_mismatch", {
-        contractDexA: dexA,
-        contractDexB: dexB,
-        scannerSushiRouter: cfg.SUSHISWAP_ROUTER,
-        scannerUniRouter: cfg.UNISWAPV2_ROUTER,
-        hint: "Redeploy contract with correct Sepolia routers — current on-chain dexA/B will revert",
-      });
-    }
-  } catch {}
+  if (cfg.CONTRACT_ADDRESS) {
+    try {
+      const abi2 = ["function dexA() view returns(address)", "function dexB() view returns(address)"];
+      const c = new ethers.Contract(cfg.CONTRACT_ADDRESS, abi2, provider);
+      const [dexA, dexB] = await Promise.all([c.dexA(), c.dexB()]);
+      if (dexA.toLowerCase() !== cfg.SUSHISWAP_ROUTER.toLowerCase() || dexB.toLowerCase() !== cfg.UNISWAPV2_ROUTER.toLowerCase()) {
+        log("contract_dex_mismatch", {
+          contractDexA: dexA,
+          contractDexB: dexB,
+          scannerSushiRouter: cfg.SUSHISWAP_ROUTER,
+          scannerUniRouter: cfg.UNISWAPV2_ROUTER,
+          hint: "Redeploy contract with correct routers — current on-chain dexA/B will revert",
+        });
+      }
+    } catch {}
+  }
 }
 
-const contract = new ethers.Contract(
-  cfg.CONTRACT_ADDRESS,
-  CONTRACT_ABI,
-  wallet,
-);
+const contract = cfg.CONTRACT_ADDRESS ? new ethers.Contract(cfg.CONTRACT_ADDRESS, CONTRACT_ABI, wallet) : null;
 
 let isExecuting = false;
 
@@ -365,6 +363,10 @@ async function executeArbitrage(buyOnSushi, loanSizeWeth, estimatedProfitWeth) {
   }
 
   try {
+    if (!contract) {
+      log("execute_error", { message: "No CONTRACT_ADDRESS set for " + NETWORK + " — deploy first or use DRY_RUN", elapsedMs: Date.now() - start });
+      return;
+    }
     // The contract's `buyOnA` means "sell first on dexA (Sushi) because it's
     // the EXPENSIVE side" — the opposite of `buyOnSushi`, which flags Sushi
     // as the CHEAP side to buy on. Passing buyOnSushi directly here was

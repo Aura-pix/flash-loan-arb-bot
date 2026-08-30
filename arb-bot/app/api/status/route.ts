@@ -6,7 +6,7 @@ const NETWORK = process.env.NETWORK || 'anvil-fork';
 const CONFIG: Record<string, { rpcUrl: string; chainId: number; WETH: string; USDC: string; label: string }> = {
   'anvil-fork': { rpcUrl: 'http://127.0.0.1:8545', chainId: 31337, WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', label: 'Anvil Fork' },
   sepolia: { rpcUrl: process.env.SEPOLIA_RPC_URL || '', chainId: 11155111, WETH: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', USDC: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', label: 'Sepolia Testnet' },
-  arbitrum: { rpcUrl: process.env.ARBITRUM_RPC_URL || '', chainId: 42161, WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', USDC: '0xFF970A64a04b2c50Ca2B3a27AffecA216E196Ec', label: 'Arbitrum One' },
+  arbitrum: { rpcUrl: process.env.ARBITRUM_RPC_URL || '', chainId: 42161, WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', USDC: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', label: 'Arbitrum One' },
 };
 
 export async function GET() {
