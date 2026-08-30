@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# bot data (SQLite shared with scanner)
+bot_data.sqlite
+

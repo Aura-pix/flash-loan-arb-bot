@@ -30,3 +30,9 @@
 # Snapshot cheatcodes output
 /snapshots
 .deps/
+
+# Fork logs
+hardhat.log
+hardhat2.log
+hardhat2.err
+
