@@ -24,69 +24,46 @@ const SEPOLIA = {
   UNISWAP_ROUTER: "0xeE567Fe1712Faf6149d80dA1E6934E354124CfE3",
 };
 
-async function main() {
-  if (!process.env.SEPOLIA_RPC_URL)
-    throw new Error("Missing SEPOLIA_RPC_URL in .env");
+const ARBITRUM = {
+  WETH: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+  USDC: "0xFF970A64a04b2c50Ca2B3a27AffecA216E196Ec",
+  SUSHISWAP_ROUTER: "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
+  UNISWAP_ROUTER: "0x4752ba5dbc23f44d87826276bf6fd6b1c372ad24",
+};
 
-  const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL);
+async function main() {
+  const NETWORK = process.env.NETWORK || "sepolia";
+  const netCfg = NETWORK === "arbitrum" ? ARBITRUM : SEPOLIA;
+  const rpcUrl = NETWORK === "arbitrum" ? process.env.ARBITRUM_RPC_URL : process.env.SEPOLIA_RPC_URL;
+  const explorer = NETWORK === "arbitrum" ? "https://arbiscan.io/address/" : "https://sepolia.etherscan.io/address/";
+  if (!rpcUrl) throw new Error(`Missing ${NETWORK === "arbitrum" ? "ARBITRUM_RPC_URL" : "SEPOLIA_RPC_URL"} in .env`);
+
+  const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-  console.log("Deploying from:", wallet.address);
+  console.log(`Deploying to ${NETWORK} from:`, wallet.address);
   const balance = await provider.getBalance(wallet.address);
-  console.log("Sepolia ETH balance:", ethers.formatEther(balance));
-  if (balance === 0n)
-    throw new Error("Wallet has 0 Sepolia ETH — use a faucet first.");
+  console.log(`${NETWORK} ETH balance:`, ethers.formatEther(balance));
+  if (balance === 0n) throw new Error(`Wallet has 0 ${NETWORK} ETH — fund first.`);
 
-  const factory = new ethers.ContractFactory(
-    artifact.abi,
-    artifact.bytecode,
-    wallet,
-  );
+  const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
   console.log("\nDeploying FlashLoanReceiver...");
-  console.log(` dexA (Sushi):  ${SEPOLIA.SUSHISWAP_ROUTER}`);
-  console.log(` dexB (UniV2):  ${SEPOLIA.UNISWAP_ROUTER}`);
-  const contract = await factory.deploy(
-    SEPOLIA.SUSHISWAP_ROUTER,
-    SEPOLIA.UNISWAP_ROUTER,
-    SEPOLIA.USDC,
-  );
+  console.log(` dexA (Sushi):  ${netCfg.SUSHISWAP_ROUTER}`);
+  console.log(` dexB (UniV2):  ${netCfg.UNISWAP_ROUTER}`);
+  const contract = await factory.deploy(netCfg.SUSHISWAP_ROUTER, netCfg.UNISWAP_ROUTER, netCfg.USDC);
   await contract.waitForDeployment();
   const address = await contract.getAddress();
   console.log("Deployed at:", address);
 
-  const [owner, dexA, dexB, tokenB] = await Promise.all([
-    contract.owner(),
-    contract.dexA(),
-    contract.dexB(),
-    contract.tokenB(),
-  ]);
+  const [owner, dexA, dexB, tokenB] = await Promise.all([contract.owner(), contract.dexA(), contract.dexB(), contract.tokenB()]);
 
   console.log("\n--- Sanity check ---");
-  console.log(
-    "owner:  ",
-    owner,
-    owner === wallet.address ? "✅" : "❌ MISMATCH",
-  );
-  console.log(
-    "dexA:   ",
-    dexA,
-    dexA === SEPOLIA.SUSHISWAP_ROUTER ? "✅" : "❌ MISMATCH",
-  );
-  console.log(
-    "dexB:   ",
-    dexB,
-    dexB === SEPOLIA.SUSHISWAP_ROUTER ? "✅" : "❌ MISMATCH",
-  );
-  console.log(
-    "tokenB: ",
-    tokenB,
-    tokenB === SEPOLIA.USDC ? "✅" : "❌ MISMATCH",
-  );
+  console.log("owner:  ", owner, owner === wallet.address ? "✅" : "❌ MISMATCH");
+  console.log("dexA:   ", dexA, dexA === netCfg.SUSHISWAP_ROUTER ? "✅" : "❌ MISMATCH");
+  console.log("dexB:   ", dexB, dexB === netCfg.UNISWAP_ROUTER ? "✅" : "❌ MISMATCH");
+  console.log("tokenB: ", tokenB, tokenB === netCfg.USDC ? "✅" : "❌ MISMATCH");
 
-  console.log(
-    "\nView on Sepolia Etherscan: https://sepolia.etherscan.io/address/" +
-      address,
-  );
+  console.log(`\nView on explorer: ${explorer}${address}`);
 }
 
 main().catch(console.error);

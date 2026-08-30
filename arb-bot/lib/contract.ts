@@ -15,7 +15,12 @@ const CONFIG: Record<string, { rpcUrl: string; WETH: string; CONTRACT_ADDRESS: s
   sepolia: {
     rpcUrl: process.env.SEPOLIA_RPC_URL || '',
     WETH: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
-    CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS || '0x77EC85E9b7fBcE5365a234F6FE826d7740FB517f',
+    CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS || '0x893144cA871B2f21399f56B385542273aBaae04D',
+  },
+  arbitrum: {
+    rpcUrl: process.env.ARBITRUM_RPC_URL || '',
+    WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    CONTRACT_ADDRESS: process.env.ARBITRUM_CONTRACT_ADDRESS || '',
   },
 };
 
