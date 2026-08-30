@@ -1,12 +1,13 @@
-# Flash Loan Arbitrage Bot — Project Documentation
+# 0xAurora — Flash Loan Arbitrage Bot — Project Documentation
 
 ## 1. What this is
 
-An automated system that watches SushiSwap and Uniswap V2 (WETH/USDC) for price
-spreads large enough to profit from, and executes a Balancer V2 flash loan to
-capture that spread atomically — borrow, swap on the cheap side, swap back on
-the expensive side, repay, keep the difference. All in one transaction, so
-there's no possibility of being caught holding an unhedged position.
+**0xAurora** is an automated system that watches SushiSwap and Uniswap V2
+(WETH/USDC) for price spreads large enough to profit from, and executes a
+Balancer V2 flash loan to capture that spread atomically — borrow, swap on
+the cheap side, swap back on the expensive side, repay, keep the difference.
+All in one transaction, so there's no possibility of being caught holding an
+unhedged position.
 
 ---
 

@@ -1,4 +1,4 @@
-# Flash Loan Arb Bot — UI Spec
+# 0xAurora — UI Spec
 
 ## 1. Design direction
 
@@ -32,6 +32,27 @@ Dense grid, not generous whitespace. Panels tile edge-to-edge with hairline divi
 ### Signature element
 
 A **live status ring** in the dashboard header — a thin circular gauge that fills as the scanner completes each 10s cycle, color-shifts on opportunity-found, and pulses on execute. One memorable, functional element; everything else stays quiet.
+
+### Branding placement
+
+Where "0xAurora" and the logo mark actually show up in the app — this needs
+to land in the code, not just live in the docs:
+
+- **`app/layout.tsx` header** — logo mark (small, ~24–28px) + "0xAurora"
+  wordmark, top-left of the nav bar, next to the live status ring. This is
+  the one placement that matters most since it's visible on every page.
+- **Browser tab** — set via `layout.tsx`'s exported `metadata` object:
+  `title: "0xAurora"` (or `"0xAurora — Dashboard"` per-page if you want
+  page-specific tab titles later).
+- **`app/favicon.ico`** — replace Next.js's default favicon with a small
+  square/circular export of the logo mark once Gemini generates it.
+- **Loading/empty states** — optional, but the logo mark works well as a
+  subtle watermark on empty states (e.g. Logs table before any runs exist)
+  rather than a generic spinner — reinforces the brand in otherwise blank
+  moments without adding clutter to data-dense screens.
+
+No footer branding — the header placement is enough; repeating it below is
+just noise on an instrument-panel-style layout.
 
 ---
 
@@ -131,3 +152,5 @@ Rough order — each phase is small enough to finish with a tutorial + a few que
 4. **Logs table + Scanner feed** — `GET /api/logs`, `GET /api/scans`, render as tables. This is the easiest "feels real" milestone — do this before Execute panel.
 5. **Execute panel** — the hard one. `POST /api/execute` calls `requestFlashLoan`, then either polls the tx receipt or (better, once comfortable) listens for the contract's `StepCompleted` events and streams them to the client via a simple polling interval or SSE.
 6. **Status ring + polish** — the signature element last, once real data is flowing through everything it's supposed to visualize.
+
+Start with 1–2 and come back anytime you hit a Next.js concept the tutorials don't make click — happy to explain App Router routing, server vs client components, or API routes in plain terms as you go.
