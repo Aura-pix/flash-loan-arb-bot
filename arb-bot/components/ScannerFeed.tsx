@@ -33,6 +33,8 @@ export default function ScannerFeed() {
       }
     };
     fetchScans();
+    const id = setInterval(fetchScans, 10000);
+    return () => clearInterval(id);
   }, []);
 
   if (loading) {

@@ -22,10 +22,9 @@ unhedged position.
   sizes a loan dynamically off real pool depth, estimates worst-case profit
   (fees + slippage), and only triggers execution when that estimate clears a
   gas-aware threshold. Logs every scan and every execution as structured JSON.
-- **UI (not yet built)** — dashboard, execute panel, logs table, scanner feed.
-  Full spec already written separately (`ui-spec.md`) — folder structure,
-  design tokens, data shapes, build phases. That plan is unchanged by
-  everything below.
+  Now supports `DRY_RUN=true` (logs `dry_run_would_execute` without sending a tx) and SQLite ingestion.
+- **UI** — dashboard, execute panel, logs table, scanner feed.
+  Scaffold + tokens + layout done (Phase 1), static Dashboard done (Phase 2), SQLite ingestion + dry-run done (Phase 3), Logs + Scanner feed wired to SQLite with live polling done (Phase 4). Remaining: Execute live streaming (Phase 5) + status ring polish (Phase 6). Full spec in `UI SPECS.md`.
 
 **Why the loan size and profit threshold aren't fixed numbers:** loan size is
 capped at a % of the shallower pool's liquidity (avoids self-inflicted
@@ -67,26 +66,24 @@ not just written and assumed correct.
 
 ---
 
-## 4. What's left
+## 4. What's left — by phase
 
-**Before Sepolia deployment:**
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **Phase 1** | Scaffold — `create-next-app`, Tailwind, `globals.css` tokens, `layout.tsx` | ✅ Done — `app/layout.tsx:1`, `globals.css:1`, `components/Navigation.tsx:1`, build passes |
+| **Phase 2** | Static Dashboard — status/network/balance cards (hardcoded layout) | ✅ Done — `app/page.tsx:1` 3-card grid, `/` prerendered |
+| **Phase 3** | SQLite + log ingestion + Dry-run | ✅ Done — `lib/db.ts:1` scans/runs tables, `lib/events.ts:1` ingestion helpers, `contracts/scripts/scanner.js:6` `DRY_RUN` flag + DB mirror, `arb-bot/scanner-service/scanner.js:1` standalone writer. Verified with `bot_data.sqlite` inserts |
+| **Phase 4** | Logs table + Scanner feed (first alive milestone) | ✅ Done — `app/api/logs/route.ts:1` + `app/api/scans/route.ts:1` read SQLite, `components/LogsTable.tsx:1` + `ScannerFeed.tsx:1` with 5s/10s polling, `dry_run` badge |
+| **Phase 5** | Execute panel with live step breakdown | 🟡 In progress — mock `lib/contract.ts:1` + `StepsBreakdown.tsx:1` + polling exists, needs real `ethers` + `StepCompleted` event streaming |
+| **Phase 6** | Status ring + polish | ⬜ Pending — `components/StatusRing.tsx:1` static pulse, `app/api/status/route.ts:1` placeholder, needs live 10s cycle + wallet-balance wiring |
+
+**Before Sepolia deployment (still parked):**
 
 - Redeploy the corrected contract to Sepolia (parked — happens once back on
-  the primary dev machine)
-- Fill in Sepolia-specific addresses in `scanner.js`'s config block (WETH,
-  USDC, router/factory addresses, contract address) — currently placeholders
+  the primary dev machine). Current on-chain `0x77EC85...` has `dexA/B = 0xd9e1...` mismatch vs correct Sepolia routers — `contracts/.env:28` `contract_dex_mismatch` logged
 - Confirm Sepolia actually has usable SushiSwap/Uniswap liquidity for this
-  pair; testnet liquidity is often too thin for a meaningful test and this
-  hasn't been verified yet
-
-**UI build (full detail in `ui-spec.md`):**
-
-- Phase 1–2: scaffold + static Dashboard
-- Phase 3: wire scanner's JSON logs into SQLite
-- Phase 4: Logs table + Scanner feed (read-only, easiest real milestone)
-- Phase 5: Execute panel with live step breakdown (hardest phase — needs
-  either polling or listening to the contract's `StepCompleted` events)
-- Phase 6: polish, signature status-ring element
+  pair; testnet liquidity is often too thin — Sepolia scan logs `sushiLiq ~499` vs `uniLiq ~605k`, so even dry-run is the right mode there
+- Sepolia `scanner.js` addresses now filled (`contracts/scripts/scanner.js:21` correct Sepolia routers/factories) — no longer placeholders
 
 **Not yet decided:**
 

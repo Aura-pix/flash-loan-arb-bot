@@ -1,6 +1,16 @@
 import { ethers } from "ethers";
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 dotenv.config();
+
+// ── Dry-run mode ────────────────────────────────────────────────
+// When DRY_RUN=true scanner computes everything it normally would —
+// spread, sizing, profit — and logs what it would have executed
+// without sending the transaction. Useful on Sepolia where liquidity
+// is thin or on mainnet-fork for validation without gas.
+const DRY_RUN = process.env.DRY_RUN === "true" || process.env.DRY_RUN === "1";
 
 // ── Network config ──────────────────────────────────────────────
 // Set NETWORK=sepolia in .env once deployed from PC. Anvil-fork values
@@ -159,6 +169,67 @@ const contract = new ethers.Contract(
 
 let isExecuting = false;
 
+// ── SQLite ingestion (optional, graceful fallback) ──────────────
+// Tries to open arb-bot/bot_data.sqlite if better-sqlite3 is available.
+// Path resolves relative to this file so it works from both
+// contracts/scripts/ and arb-bot/scanner-service/.
+let db = null;
+let insertScanStmt = null;
+let insertRunStmt = null;
+try {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const candidates = [
+    process.env.BOT_DB_PATH,
+    path.resolve(__dirname, "../../arb-bot/bot_data.sqlite"),
+    path.resolve(__dirname, "../bot_data.sqlite"),
+    path.resolve(process.cwd(), "bot_data.sqlite"),
+    path.resolve(process.cwd(), "arb-bot/bot_data.sqlite"),
+  ].filter(Boolean);
+  const dbPath = candidates.find((p) => {
+    try { return fs.existsSync(path.dirname(p)); } catch { return false; }
+  }) || candidates[0];
+  if (dbPath) {
+    const Database = (await import("better-sqlite3")).default;
+    db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        sushiPrice REAL NOT NULL,
+        uniPrice REAL NOT NULL,
+        spreadPct REAL NOT NULL,
+        loanSizeWeth REAL NOT NULL,
+        estimatedProfitWeth REAL NOT NULL,
+        thresholdWeth REAL NOT NULL,
+        gasPriceGwei REAL NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        network TEXT NOT NULL,
+        txHash TEXT,
+        status TEXT NOT NULL,
+        gasUsed INTEGER,
+        elapsedMs INTEGER,
+        loanSizeWeth REAL NOT NULL,
+        profitWeth REAL
+      );
+    `);
+    insertScanStmt = db.prepare(
+      "INSERT INTO scans (ts, sushiPrice, uniPrice, spreadPct, loanSizeWeth, estimatedProfitWeth, thresholdWeth, gasPriceGwei) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    insertRunStmt = db.prepare(
+      "INSERT INTO runs (ts, network, txHash, status, gasUsed, elapsedMs, loanSizeWeth, profitWeth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    console.log(JSON.stringify({ ts: new Date().toISOString(), network: NETWORK, event: "db_connected", dbPath }));
+  }
+} catch (e) {
+  // better-sqlite3 not installed in contracts workspace — that's fine.
+  // arb-bot/scanner-service/ will handle ingestion instead.
+  console.log(JSON.stringify({ ts: new Date().toISOString(), network: NETWORK, event: "db_not_available", message: e.message }));
+}
+
 // ── Structured logging ──────────────────────────────────────────
 function log(event, data) {
   const entry = {
@@ -168,6 +239,37 @@ function log(event, data) {
     ...data,
   };
   console.log(JSON.stringify(entry));
+  // Mirror to SQLite when available
+  try {
+    if (db) {
+      if (event === "scan_checked" && insertScanStmt) {
+        insertScanStmt.run(
+          Date.now(),
+          data.sushiPrice,
+          data.uniPrice,
+          data.spreadPct,
+          Number(data.loanSizeWeth),
+          data.estimatedProfitWeth,
+          data.thresholdWeth,
+          data.gasPriceGwei
+        );
+      } else if ((event === "execute_success" || event === "execute_reverted" || event === "execute_error" || event === "dry_run_would_execute") && insertRunStmt) {
+        const statusMap = { execute_success: "success", execute_reverted: "reverted", execute_error: "error", dry_run_would_execute: "dry_run" };
+        insertRunStmt.run(
+          Date.now(),
+          NETWORK,
+          data.hash || data.txHash || null,
+          statusMap[event] || event,
+          data.gasUsed ? Number(data.gasUsed) : null,
+          data.elapsedMs || null,
+          data.loanSizeWeth ? Number(data.loanSizeWeth) : 0,
+          data.profitWeth ?? data.estimatedProfitWeth ?? null
+        );
+      }
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), network: NETWORK, event: "db_insert_failed", message: e.message }));
+  }
   return entry;
 }
 
@@ -225,7 +327,7 @@ function estimateProfitWeth(loanSizeWeth, buyPrice, sellPrice) {
   return wethReceived - loanSize;
 }
 
-async function executeArbitrage(buyOnSushi, loanSizeWeth) {
+async function executeArbitrage(buyOnSushi, loanSizeWeth, estimatedProfitWeth) {
   if (isExecuting) return;
   isExecuting = true;
   const start = Date.now();
@@ -234,6 +336,23 @@ async function executeArbitrage(buyOnSushi, loanSizeWeth) {
     buyOnSushi,
     loanSizeWeth: ethers.formatUnits(loanSizeWeth, 18),
   });
+
+  // Dry-run: compute everything, log intent, skip on-chain tx
+  if (DRY_RUN) {
+    const elapsedMs = Date.now() - start;
+    log("dry_run_would_execute", {
+      buyOnSushi,
+      buyOnA: !buyOnSushi,
+      loanSizeWeth: ethers.formatUnits(loanSizeWeth, 18),
+      estimatedProfitWeth,
+      hash: null,
+      elapsedMs,
+      note: "DRY_RUN=true — no transaction sent",
+    });
+    isExecuting = false;
+    return;
+  }
+
   try {
     // The contract's `buyOnA` means "sell first on dexA (Sushi) because it's
     // the EXPENSIVE side" — the opposite of `buyOnSushi`, which flags Sushi
@@ -360,7 +479,7 @@ async function scan() {
         estimatedProfitWeth,
         thresholdWethNum,
       });
-      await executeArbitrage(buyOnSushi, loanSizeWeth);
+      await executeArbitrage(buyOnSushi, loanSizeWeth, estimatedProfitWeth);
     }
   } catch (err) {
     log("scan_error", { message: err.message });

@@ -6,10 +6,10 @@ type Run = {
   id: number;
   ts: number;
   network: string;
-  txHash: string;
-  status: "success" | "reverted" | "error";
-  gasUsed: number;
-  elapsedMs: number;
+  txHash: string | null;
+  status: "success" | "reverted" | "error" | "dry_run";
+  gasUsed: number | null;
+  elapsedMs: number | null;
   loanSizeWeth: number;
   profitWeth: number | null;
 };
@@ -33,6 +33,8 @@ export default function LogsTable() {
       }
     };
     fetchRuns();
+    const id = setInterval(fetchRuns, 5000);
+    return () => clearInterval(id);
   }, []);
 
   if (loading) {
@@ -66,18 +68,19 @@ export default function LogsTable() {
                 <td className="px-6 py-4 text-ink">{run.network}</td>
                 <td className="px-6 py-4">
                   <span className={`px-2.5 py-1 rounded-sm border text-[10px] font-bold uppercase tracking-wider ${
-                    run.status === 'success' ? 'bg-good/10 text-good border-good/20' : 
+                    run.status === 'success' ? 'bg-good/10 text-good border-good/20' :
+                    run.status === 'dry_run' ? 'bg-accent/10 text-accent border-accent/20' :
                     'bg-bad/10 text-bad border-bad/20'
                   }`}>
-                    {run.status}
+                    {run.status === 'dry_run' ? 'dry-run' : run.status}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-ink text-right">{run.loanSizeWeth.toFixed(4)}</td>
-                <td className={`px-6 py-4 text-right font-bold ${run.profitWeth && run.profitWeth > 0 ? 'text-good' : 'text-bad'}`}>
-                  {run.profitWeth ? `+${run.profitWeth.toFixed(4)}` : '0.0000'}
+                <td className="px-6 py-4 text-ink text-right">{Number(run.loanSizeWeth).toFixed(4)}</td>
+                <td className={`px-6 py-4 text-right font-bold ${run.profitWeth && run.profitWeth > 0 ? 'text-good' : run.status === 'dry_run' ? 'text-accent' : 'text-bad'}`}>
+                  {run.profitWeth ? `${run.profitWeth > 0 ? '+' : ''}${Number(run.profitWeth).toFixed(4)}` : '0.0000'}
                 </td>
                 <td className="px-6 py-4 text-ink-dim">
-                  {run.txHash ? `${run.txHash.substring(0, 6)}...${run.txHash.substring(run.txHash.length - 4)}` : '-'}
+                  {run.txHash ? `${run.txHash.substring(0, 6)}...${run.txHash.substring(run.txHash.length - 4)}` : run.status === 'dry_run' ? '—' : '-'}
                 </td>
               </tr>
             ))
