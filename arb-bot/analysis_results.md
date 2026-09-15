@@ -155,14 +155,3 @@ The off-chain brain. Runs as a long-lived Node.js process polling every 10 secon
 > The `.env` file contains a **private key** and an **Alchemy API key** in the repo. The private key (`0xac0974...`) is Hardhat's default test account (account #0), so it's not a real key — but the Alchemy key is real and should not be committed.
 
 ---
-
-## What Would You Like to Work On?
-
-The main open workstreams are:
-1. **Build out the UI** — following the spec in [UI SPECS.md](file:///c:/Users/HOME%20PC/Desktop/Arbitrage%20bot/arb-bot/UI%20SPECS.md)
-2. **Sepolia deployment** — fill in testnet addresses, redeploy contract
-3. **Automated test suite** — Hardhat tests for the contract
-4. **Multi-pair / multi-DEX expansion**
-5. **MEV protection** (Flashbots integration)
-
-Let me know what you'd like to tackle.
