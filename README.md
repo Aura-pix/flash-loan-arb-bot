@@ -1,82 +1,98 @@
-# 0xAurora — Flash-Loan Arbitrage Bot
+# Flash-Loan Arbitrage Bot
 
-0xAurora is an experimental arbitrage system with a Next.js monitoring dashboard, an off-chain DEX scanner, and a Solidity flash-loan receiver. The scanner monitors the WETH/USDC markets on SushiSwap and Uniswap V2, estimates whether a price difference could cover swap costs and gas, and can request an atomic Balancer V2 flash loan to execute both swaps.
-
-This repository is a development project, not a turnkey or guaranteed-profitable trading service. Begin with a local fork or test network and dry-run mode. Do not use funds you cannot afford to lose.
-
-## Project layout
-
-The repository has two separately installed Node.js packages:
-
-```text
-arb-bot/                         # Next.js dashboard and scanner service
-  app/                           # Dashboard pages and API routes
-  components/                    # Dashboard, scanner, log, and execution UI
-  lib/                           # Ethers integration and SQLite access
-  scanner-service/scanner.js     # Long-running off-chain scanner
-  bot_data.sqlite                # Runtime scan and execution history
-contracts/                       # Hardhat project and Solidity contract
-  contracts/FlashLoanReceiver.sol
-  contracts/FlashLoanReceiver.t.sol
-  mocks/                         # Test token, router, and vault
-  scripts/                       # Deployment, scanning, and simulation scripts
-```
-
-The dashboard and `scanner-service` share `arb-bot/bot_data.sqlite` when both are started from the `arb-bot` directory. The Hardhat project is independent and has its own dependencies and environment file.
+This experimental arbitrage system combines a Node.js scanner, Next.js dashboard, and Solidity flash-loan receiver. It compares WETH/USDC prices on configured SushiSwap and Uniswap V2 markets and can request a Balancer V2 flash loan for an atomic two-swap trade. Profit is not guaranteed.
 
 ## How it works
 
-1. **Scan:** Every 10 seconds, the scanner reads SushiSwap and Uniswap V2 WETH/USDC pool reserves and router quotes.
-2. **Estimate:** It sizes a candidate loan from the shallower pool, within configured minimum and maximum limits, and estimates profit after swap fees and a slippage buffer. The execution threshold is based on estimated gas cost and a configurable minimum profit floor.
-3. **Execute:** If estimated profit exceeds the threshold, the scanner requests a Balancer V2 flash loan. The contract swaps across the two DEX routers, checks that it can repay the loan and fee, repays Balancer, and emits execution events. The scanner withdraws any remaining WETH after a successful run.
-4. **Record and display:** Scan and run records are stored in SQLite. The dashboard reads this data through its API and displays status, scan history, execution steps, and past runs.
-
-The dashboard also has a manual execution panel. A manual request is not the same as an opportunity-approved scanner trade: the scanner's profit threshold is evaluated by the scanner loop, not by the contract's manual execution endpoint.
-
-## Requirements
-
-- Node.js compatible with Next.js 16 and npm
-- An RPC endpoint for the selected network
-- A funded development/test wallet for live contract operations
-- A local fork node at `http://127.0.0.1:8545` when using the default `anvil-fork` network
-
-## Install
-
-Install each package from its own directory:
-
-```powershell
-cd arb-bot
-npm install
-
-cd ..\contracts
-npm install
+```text
+SushiSwap + Uniswap V2 pools (WETH/USDC)
+                 |
+                 v
+  arb-bot/scanner-service/scanner.js
+  reads reserves and router quotes every 10 seconds
+                 |
+       estimates profit vs. threshold
+          /                  \
+ below threshold          above threshold
+   keep scanning       DRY_RUN? -- yes --> log only
+                           |
+                           no
+                           v
+                 Balancer V2 flash loan
+                           |
+                           v
+  FlashLoanReceiver: swap on one DEX, swap back on the other,
+  repay principal + fee, then report any remaining profit
+                           |
+                           v
+        SQLite history <---+---> Next.js dashboard
 ```
 
-## Configuration
+The scanner sizes a candidate loan from the shallower pool's WETH reserve within configured limits, then estimates fees, slippage, and a gas-based profit threshold. SQLite stores scan/run history for the dashboard's status, scanner, logs, and manual execution pages. Manual execution bypasses the scanner's threshold; dry-run results are simulations, not transactions.
 
-The dashboard and `scanner-service/scanner.js` read configuration from `arb-bot/.env.local`. The scanner also loads `contracts/.env` and a `.env` in its working directory. The Hardhat deployment script loads `contracts/.env`.
+## Contracts and configured addresses
 
-Create the environment file(s) you need; never commit a real private key or RPC credential.
+`contracts/contracts/FlashLoanReceiver.sol` implements the owner-controlled receiver. Its constructor takes two DEX routers and the second swap token; its Balancer V2 Vault is fixed at `0xBA12222222228d8Ba445958a75a0704d566BF2C8`. Deployment prints an address but does not update bot configuration.
+
+The bot source includes these receiver address defaults:
+
+| Network | Address in scanner configuration | How to verify |
+| --- | --- | --- |
+| Local `anvil-fork` | `0x1C33Db5FC563ac9732C5352c37B73d95b7015E6f` | Check code on your local fork with `cast code <address> --rpc-url http://127.0.0.1:8545`. |
+| Sepolia | `0x893144cA871B2f21399f56B385542273aBaae04D` | Look up the address on [Sepolia Etherscan](https://sepolia.etherscan.io/). |
+| Arbitrum | None; set `ARBITRUM_CONTRACT_ADDRESS` for a deployment you control | Look up your deployed address on [Arbiscan](https://arbiscan.io/). |
+
+These source defaults do not confirm a live deployment or correct configuration; verify code, owner, routers, token, and network. The deploy script defaults to Sepolia for plumbing validation, not proof of arbitrage. Markets are WETH/USDC with network-specific addresses in scanner source.
+
+## Prerequisites
+
+- Node.js 20.9 or newer and npm.
+- An RPC endpoint for Sepolia or Arbitrum, or a local Anvil node forked from Ethereum mainnet at `http://127.0.0.1:8545` (the default network).
+- For live transactions/deployment: a dedicated wallet and native currency for gas. Dry-run/dashboard development needs no key.
+- For contract deployment/testing: the separate dependencies installed from `contracts/`.
+
+## Installation
+
+Clone the repository and install each package from its own directory:
+
+```powershell
+git clone https://github.com/Aura-pix/flash-loan-arb-bot.git
+cd flash-loan-arb-bot\arb-bot
+npm ci
+cd ..\contracts
+npm ci
+```
+
+## How to start a local Anvil fork
+
+On Windows, use Git Bash or WSL (not PowerShell/Command Prompt) to install Foundry and Anvil:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+In a new terminal, replace `<your RPC>` with a mainnet RPC URL:
+
+```bash
+anvil --fork-url <your RPC> --port 8545
+```
+
+Keep Anvil running with `NETWORK=anvil-fork`. Its generated accounts/keys are public; never use them for real funds. See the [Foundry installation guide](https://getfoundry.sh/introduction/installation/) and [Anvil docs](https://getfoundry.sh/anvil/).
+
+## Environment variables
+
+Create `arb-bot/.env.local`, loaded by the dashboard and standalone scanner. Keep secrets out of source control; this example contains no credentials:
 
 ```dotenv
-# Network: anvil-fork, sepolia, or arbitrum
 NETWORK=anvil-fork
-
-# Keep enabled while testing. "true" and "1" enable dry-run mode.
 DRY_RUN=true
-
-# Required for live wallet operations; use a dedicated test wallet.
 PRIVATE_KEY=
-
-# Set the RPC URL for the selected remote network.
 SEPOLIA_RPC_URL=
 ARBITRUM_RPC_URL=
-
-# Contract address overrides for remote networks.
 CONTRACT_ADDRESS=
 ARBITRUM_CONTRACT_ADDRESS=
 
-# Scanner settings (defaults shown)
 MIN_LIQUIDITY_USD=100000
 POOL_PCT=0.01
 MIN_LOAN_WETH=0.05
@@ -87,52 +103,29 @@ MIN_PROFIT_FLOOR_WETH=0.001
 SLIPPAGE_BUFFER_BPS=100
 ```
 
-`anvil-fork` uses the local RPC URL and mainnet DEX/token addresses; it therefore needs a correctly configured mainnet fork, not a plain empty local chain. `sepolia` and `arbitrum` use their respective RPC URL variables. The scanner's thresholds and market assumptions are estimates, not guarantees that a transaction will be profitable.
+`NETWORK` accepts `anvil-fork`, `sepolia`, or `arbitrum`; its local RPC is fixed in code. For testnets, set the matching RPC URL. `PRIVATE_KEY` is for wallet operations. `CONTRACT_ADDRESS` overrides Sepolia's default; Arbitrum requires `ARBITRUM_CONTRACT_ADDRESS`. Other variables tune liquidity, loan sizing, gas/profit thresholds, and slippage (shown defaults). Keep `DRY_RUN=true` until live settings are verified.
 
-## Run the dashboard and scanner
+For deployment, create `contracts/.env` with `NETWORK`, `PRIVATE_KEY`, and the matching RPC URL. Use a funded development wallet; never commit this file. Set the deployed address in the matching bot variable.
 
-Start the dashboard from `arb-bot`:
+## Run
+
+Start the dashboard:
 
 ```powershell
 cd arb-bot
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). In a second terminal, start the scanner from the same directory so it writes to the same SQLite database:
+Open [http://localhost:3000](http://localhost:3000). To populate the scanner feed, open a second terminal and start the scanner from the same directory:
 
 ```powershell
 cd arb-bot
 node scanner-service/scanner.js
 ```
 
-The scanner runs continuously and prints structured JSON events to the terminal. It can write scans and executions to SQLite in both dry-run and live modes. The dashboard can run without the scanner, but its scan feed and run history will only show data already in the database.
+The scanner needs a reachable RPC and working router/factory contracts even in dry-run mode; it still reads market data. It writes history to `arb-bot/bot_data.sqlite`, which the dashboard reads from its working directory. The dashboard can start without network access, but scanning cannot.
 
-When `DRY_RUN=true`, the scanner logs that it would execute but sends no transaction. The dashboard's execute flow also simulates steps in dry-run mode. If no usable wallet or provider is configured, the dashboard execution handler can use its local simulated flow; simulated results are not blockchain transactions.
-
-## Dashboard pages and API
-
-| Page       | Purpose                                                              |
-| ---------- | -------------------------------------------------------------------- |
-| `/`        | Dashboard status, selected network, wallet balances, and latest scan |
-| `/scanner` | Recent WETH/USDC scan checks and estimated opportunities             |
-| `/execute` | Submit a flash-loan request and inspect execution steps              |
-| `/logs`    | View recent execution history                                        |
-
-The corresponding Next.js API routes are:
-
-| Method and route                     | Purpose                                                                             |
-| ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `GET /api/status`                    | Network, RPC connectivity, wallet balances, and latest scan/run                     |
-| `GET /api/scans?limit=50`            | Recent scan records                                                                 |
-| `GET /api/logs?limit=50`             | Recent execution records                                                            |
-| `POST /api/execute`                  | Submit a loan request; accepts optional JSON `{ "amount": "0.5", "buyOnA": false }` |
-| `GET /api/execute/status?txHash=...` | Read the tracked state and steps for a submitted request                            |
-
-The default loan amount for a manual execution is `0.5` WETH. Execution status is tracked in the running Next.js process; the persisted SQLite run history is separate from that in-memory step status.
-
-## Smart contract development
-
-From the `contracts` directory:
+Compile and run the Solidity tests separately:
 
 ```powershell
 cd contracts
@@ -140,29 +133,14 @@ npx hardhat compile
 npm test
 ```
 
-`npm test` runs the Solidity tests for `FlashLoanReceiver`, using the mock token, router, and vault contracts. `npm run test:all` runs the broader Hardhat test command.
+To deploy, configure `contracts/.env`, run `node scripts/deploy.js` from `contracts`, then set the printed address in the bot environment. Verify network routers/tokens; deployment alone does not prove liquidity or profitability.
 
-The deployment script is `contracts/scripts/deploy.js`. It defaults to Sepolia and supports Arbitrum by setting `NETWORK=arbitrum`; configure `PRIVATE_KEY` and the matching RPC URL in `contracts/.env` before running it. After compiling, run it from the `contracts` directory:
+## Troubleshooting
 
-```powershell
-node scripts/deploy.js
-```
+- **RPC not reachable:** For `anvil-fork`, confirm Anvil is still running on port 8545 and that your fork RPC is valid. For Sepolia or Arbitrum, check the selected `NETWORK` and matching RPC URL.
+- **`CONTRACT_ADDRESS` not set:** After deployment, set `CONTRACT_ADDRESS` in `arb-bot/.env.local` for Sepolia or `ARBITRUM_CONTRACT_ADDRESS` for Arbitrum, then restart the scanner/dashboard. Arbitrum has no address default in the scanner.
+- **SQLite file locked:** Stop duplicate scanner/dashboard processes that may be writing to `arb-bot/bot_data.sqlite`, allow any active write to finish, and restart one scanner. Do not delete the database if you need its history.
 
-The deployment script describes its Sepolia configuration as deployment/plumbing validation, not proof of real two-DEX arbitrage. Its current code passes the configured SushiSwap and Uniswap router addresses as separate constructor arguments. Verify that both addresses have the expected code and usable pair liquidity on the selected network; do not rely on stale script comments or a successful deployment as evidence that arbitrage will work.
+## Risks and disclaimer
 
-## Safety and known limitations
-
-- The scanner only checks one pair (WETH/USDC) across two configured V2-style DEX routers.
-- There is no MEV/private-transaction protection. Slippage limits do not prevent front-running or sandwich attacks.
-- Pool liquidity, gas costs, quotes, and estimated profit can change before a transaction is included. A successful execution is not guaranteed.
-- The contract uses a fixed Balancer V2 Vault address and owner-authorized execution/withdrawal. Confirm that the vault and configured routers are valid on the target network.
-- The contract checks that the loan can be repaid, but does not enforce the scanner's estimated-profit threshold. A manual call can therefore revert or be unprofitable.
-- Dry-run and simulated dashboard flows do not validate live contract behavior and must not be mistaken for on-chain transactions.
-- When live status data is unavailable, the dashboard currently displays placeholder wallet and balance values. Do not treat those fallback figures as on-chain balances.
-- Scanner JavaScript does not currently have a dedicated automated unit-test suite; contract tests do not prove live-network profitability or safety.
-
-## Other project notes
-
-- [Project Roadmap.md](./Project%20Roadmap.md) describes implementation status and planned work.
-- [UI SPECS.md](./UI%20SPECS.md) documents the dashboard design and data shapes.
-- [contracts/README.md](../contracts/README.md) contains the original Hardhat starter documentation.
+Live execution can lose funds: prices, liquidity, fees, and gas change, and trades can revert. The contract checks loan repayment but not the scanner's profit threshold. There is no private transaction/MEV protection; slippage limits do not prevent front-running or sandwich attacks. Test on a fork/testnet with `DRY_RUN=true`, verify configuration, and risk only funds you can afford to lose. This is not financial or investment advice.
