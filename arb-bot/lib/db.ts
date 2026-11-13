@@ -3,6 +3,9 @@ import path from 'path';
 
 const dbPath = path.join(process.cwd(), 'bot_data.sqlite');
 const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
+db.pragma('synchronous = NORMAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS scans (

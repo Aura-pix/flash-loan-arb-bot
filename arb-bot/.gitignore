@@ -43,4 +43,7 @@ next-env.d.ts
 
 # bot data (SQLite shared with scanner)
 bot_data.sqlite
+opportunity_data.sqlite
+*.sqlite-wal
+*.sqlite-shm
 

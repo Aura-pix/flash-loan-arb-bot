@@ -72,6 +72,34 @@ node scanner-service/scanner.js
 
 It checks pool liquidity and router quotes every 10 seconds, logs structured JSON events, and may request a flash loan when its estimated profit exceeds its threshold. Keep `DRY_RUN=true` while validating configuration: dry-run logs potential executions but does not send a transaction. A dry-run estimate is not evidence of a live opportunity or successful execution.
 
+## Opportunity measurement (read-only)
+
+Before enabling a new venue or pair, run the collector for several days. It reads pool state and quoter results, writes samples to `opportunity_data.sqlite`, and never sends a transaction.
+
+```powershell
+npm run collect
+```
+
+Default venues on Base are `uniswap-v2`, `uniswap-v3`, and `pancake-v3`; every configured V3 fee tier is sampled. Each cycle rotates through `COLLECT_SIZES_WETH`. The collector computes the exact sell leg and the exact buy-back leg for that output, then subtracts gas, an L1-fee estimate, and a safety margin.
+
+```dotenv
+COLLECT_INTERVAL_MS=60000
+COLLECT_SIZES_WETH=0.1,0.25,0.5,1,2,5
+COLLECT_VENUES=
+COLLECT_CONCURRENCY=2
+L1_FEE_WETH=0.00005
+SAFETY_MARGIN_BPS=20
+OPPORTUNITY_DB_PATH=
+```
+
+Generate a summary at any time:
+
+```powershell
+npm run collect:summary
+```
+
+The summary reports samples per day, positive-sample rate, median net bps, the best net WETH/USD, per-size results, the best route pairs, and the top samples. Use a 7-day run before deciding whether a venue/pair clears costs.
+
 ## Dashboard routes
 
 | Route | Description |

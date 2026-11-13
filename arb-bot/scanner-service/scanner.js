@@ -51,6 +51,9 @@ const dbPath = process.env.BOT_DB_PATH
   ? path.resolve(process.env.BOT_DB_PATH)
   : path.resolve(__dirname, "../bot_data.sqlite");
 const db = new Database(dbPath);
+db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 5000");
+db.pragma("synchronous = NORMAL");
 db.exec(`
   CREATE TABLE IF NOT EXISTS scans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
