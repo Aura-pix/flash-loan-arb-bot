@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { activeSimulations } from '../../../../lib/contract';
+import { getExecution } from '../../../../lib/executions';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -9,14 +9,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing txHash' }, { status: 400 });
   }
 
-  const sim = activeSimulations.get(txHash);
-  if (!sim) {
-    return NextResponse.json({ error: 'Transaction not found or not tracked' }, { status: 404 });
+  const execution = getExecution(txHash);
+  if (!execution) {
+    return NextResponse.json(
+      { error: 'Transaction not found or not tracked' },
+      { status: 404 }
+    );
   }
 
   return NextResponse.json({
     txHash,
-    status: sim.status,
-    steps: sim.steps.slice(0, sim.currentStep),
+    status: execution.status,
+    steps: execution.steps.slice(0, execution.currentStep),
   });
 }

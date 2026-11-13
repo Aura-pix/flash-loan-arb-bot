@@ -32,13 +32,20 @@ npm run lint
 Create `.env.local` in this directory. Keep credentials private and do not commit real private keys or RPC tokens.
 
 ```dotenv
-NETWORK=anvil-fork
+NETWORK=base
 DRY_RUN=true
 PRIVATE_KEY=
-SEPOLIA_RPC_URL=
+BASE_RPC_URL=
 ARBITRUM_RPC_URL=
-CONTRACT_ADDRESS=
+SEPOLIA_RPC_URL=
+BASE_CONTRACT_ADDRESS=
 ARBITRUM_CONTRACT_ADDRESS=
+CONTRACT_ADDRESS=
+
+# Manual execution is disabled unless explicitly enabled and authenticated.
+EXECUTOR_ENABLED=false
+EXECUTOR_TOKEN=
+ENABLE_LIVE_EXECUTION=false
 
 # Optional scanner thresholds; defaults shown
 MIN_LIQUIDITY_USD=100000
@@ -48,10 +55,14 @@ MAX_LOAN_WETH=5
 GAS_ESTIMATE_UNITS=450000
 PROFIT_SAFETY_MULTIPLIER=2
 MIN_PROFIT_FLOOR_WETH=0.001
+MIN_NET_PROFIT_WETH=0.0005
 SLIPPAGE_BUFFER_BPS=100
+EXPECTED_SLIPPAGE_BPS=20
+# Blank uses the network default (USDC on Base, USDC.e on Arbitrum)
+QUOTE_TOKEN=
 ```
 
-The scanner also loads `contracts/.env` and a `.env` in its working directory. The scanner configuration supports `anvil-fork`, `sepolia`, and `arbitrum`. The default fork configuration uses mainnet token/router addresses through a local RPC, so it requires a fork with those contracts available; a blank local chain will not work. For remote networks, set the matching RPC URL and verify that the configured contract and router addresses are correct for that network.
+The scanner also loads `contracts/.env` and a `.env` in its working directory. The scanner configuration supports `anvil-fork`, `sepolia`, `arbitrum`, and `base`. The default fork configuration uses mainnet token/router addresses through a local RPC, so it requires a fork with those contracts available; a blank local chain will not work. For remote networks, set the matching RPC URL and verify that the configured contract and router addresses are correct for that network. Base currently has one deep V2 venue (Uniswap V2) and no second liquid V2 venue; the V2/V3 receiver needed for Base is the next phase. Until then, a Base scanner run will log `scan_skipped_low_liquidity`.
 
 Start the scanner in another terminal, from this directory:
 
@@ -77,10 +88,10 @@ API routes:
 | `GET /api/status` | Network, RPC status, wallet balances, and latest scan/run |
 | `GET /api/scans?limit=50` | Recent scan records |
 | `GET /api/logs?limit=50` | Recent run records |
-| `POST /api/execute` | Submit an optional JSON body such as `{ "amount": "0.5", "buyOnA": false }` |
+| `POST /api/execute` | Manual execution; requires `EXECUTOR_ENABLED=true`, `EXECUTOR_TOKEN`, and the `x-executor-token` header. Body: `{ "amount": "0.05", "buyOnA": true }` |
 | `GET /api/execute/status?txHash=...` | Read tracked execution status and steps |
 
-The manual endpoint submits a contract request; it does not apply the scanner's estimated-profit threshold. Without a usable wallet/provider, the dashboard may show a local simulated execution flow. Such simulations are not blockchain transactions. Execution steps are tracked in the running Next.js process; scan and run history is stored separately in SQLite.
+The manual endpoint submits a contract request; it does not apply the scanner's estimated-profit threshold. It is disabled by default and requires a server-side token. Without a usable wallet/provider, a live request fails closed rather than simulating success. Execution steps are persisted in SQLite and tracked per transaction; scan and run history is stored separately.
 
 ## SQLite data
 
@@ -88,7 +99,8 @@ The scanner and dashboard use `bot_data.sqlite` in this package directory when s
 
 ## Limitations
 
-- The scanner is limited to WETH/USDC on the configured SushiSwap and Uniswap V2-style routers.
+- The current scanner is limited to WETH/USDC on the first two configured Uniswap-V2-style venues. On Base, the second V2 venue is too thin; the V2/V3 receiver and scanner are the next phase.
+- The dashboard filters scan/run history by the configured `NETWORK` so rows from different chains do not mix.
 - Profit and gas calculations are estimates; prices, liquidity, fees, and gas can change before inclusion.
 - Slippage protection does not prevent MEV, front-running, or sandwich attacks.
 - The scanner does not currently have a dedicated automated JavaScript test suite.

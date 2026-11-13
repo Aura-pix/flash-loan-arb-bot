@@ -48,8 +48,8 @@ export default function ScannerFeed() {
           <tr className="border-b border-line text-ink-dim uppercase tracking-wider text-xs font-medium">
             <th className="px-6 py-4">Time</th>
             <th className="px-6 py-4 text-right">Spread %</th>
-            <th className="px-6 py-4 text-right">Sushi Price</th>
-            <th className="px-6 py-4 text-right">Uni Price</th>
+            <th className="px-6 py-4 text-right">Price A</th>
+            <th className="px-6 py-4 text-right">Price B</th>
             <th className="px-6 py-4 text-right">Est. Profit</th>
             <th className="px-6 py-4 text-right">Threshold</th>
           </tr>

@@ -59,7 +59,7 @@ async function main() {
 
   console.log("\nExecuting with corrected direction...");
   try {
-    const tx = await contract.requestFlashLoan(WETH, loanAmount, buyOnA, { gasLimit: 500000 });
+    const tx = await contract.requestFlashLoan(WETH, loanAmount, buyOnA, 0, { gasLimit: 500000 });
     const receipt = await tx.wait();
     console.log("Status:", receipt.status === 1 ? "✅ SUCCESS" : "❌ FAILED");
     console.log("Gas used:", receipt.gasUsed.toString());

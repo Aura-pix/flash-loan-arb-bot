@@ -1,1 +1,36 @@
 work-log.md
+
+# dependencies
+node_modules/
+.deps/
+
+# builds
+.next/
+out/
+dist/
+build/
+artifacts/
+cache/
+typechain-types/
+coverage/
+
+# environment / secrets
+.env
+.env.*
+!.env.example
+
+# runtime data
+*.sqlite
+*.sqlite-*
+*.db
+
+# logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# private planning docs
+docs/
+

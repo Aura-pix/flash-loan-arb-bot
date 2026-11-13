@@ -29,12 +29,12 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, []);
 
-  const networkLabel = status?.label || "Sepolia Testnet";
-  const chainId = status?.chainId || 11155111;
+  const networkLabel = status?.label || "Base";
+  const chainId = status?.chainId || 8453;
   const walletShort = status?.walletAddress || "0x1234...ABCD";
-  const ethBal = status?.balances.eth ? Number(status.balances.eth).toFixed(4) : "0.5420";
-  const wethBal = status?.balances.weth ? Number(status.balances.weth).toFixed(4) : "1.2500";
-  const usdcBal = status?.balances.usdc ? Number(status.balances.usdc).toFixed(2) : "2,450.00";
+  const ethBal = status?.balances.eth ? Number(status.balances.eth).toFixed(4) : "—";
+  const wethBal = status?.balances.weth ? Number(status.balances.weth).toFixed(4) : "—";
+  const usdcBal = status?.balances.usdc ? Number(status.balances.usdc).toFixed(2) : "—";
   const isLive = status?.rpcOk ?? false;
 
   return (
@@ -61,7 +61,7 @@ export default function DashboardPage() {
           <div className="mt-2">
             <div className="text-2xl font-mono text-ink tracking-tight">ACTIVE</div>
             <div className="text-xs text-ink-dim mt-2">
-              Watching WETH/USDC (Sushi vs UniV2)
+              Watching WETH/USDC (configured venues)
               {status?.lastScan && (
                 <span className="ml-2 font-mono">· spread {status.lastScan.spreadPct.toFixed(4)}%</span>
               )}
@@ -85,7 +85,7 @@ export default function DashboardPage() {
               <div>
                 <div className="font-medium text-ink">{networkLabel}</div>
                 <div className="text-xs text-ink-dim font-mono mt-1">Chain ID: {chainId}</div>
-                {!isLive && <div className="text-[10px] text-ink-dim mt-1">RPC not connected — showing cached</div>}
+                {!isLive && <div className="text-[10px] text-ink-dim mt-1">RPC not connected</div>}
               </div>
             </div>
           </div>

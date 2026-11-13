@@ -1,196 +1,314 @@
 import { ethers } from 'ethers';
-import path from 'path';
-import Database from 'better-sqlite3';
-
-// ── Network config (mirrors contracts/scripts/scanner.js) ─
-const NETWORK = process.env.NETWORK || 'anvil-fork';
-const DRY_RUN = process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
-
-const CONFIG: Record<string, { rpcUrl: string; WETH: string; CONTRACT_ADDRESS: string }> = {
-  'anvil-fork': {
-    rpcUrl: 'http://127.0.0.1:8545',
-    WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-    CONTRACT_ADDRESS: '0x1C33Db5FC563ac9732C5352c37B73d95b7015E6f',
-  },
-  sepolia: {
-    rpcUrl: process.env.SEPOLIA_RPC_URL || '',
-    WETH: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
-    CONTRACT_ADDRESS: process.env.CONTRACT_ADDRESS || '0x893144cA871B2f21399f56B385542273aBaae04D',
-  },
-  arbitrum: {
-    rpcUrl: process.env.ARBITRUM_RPC_URL || '',
-    WETH: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
-    CONTRACT_ADDRESS: process.env.ARBITRUM_CONTRACT_ADDRESS || '',
-  },
-};
-
-function getCfg() {
-  return CONFIG[NETWORK] || CONFIG['anvil-fork'];
-}
-
-function getProvider() {
-  const cfg = getCfg();
-  if (!cfg.rpcUrl) return null;
-  try { return new ethers.JsonRpcProvider(cfg.rpcUrl); } catch { return null; }
-}
-
-function getWallet() {
-  const pk = process.env.PRIVATE_KEY;
-  const provider = getProvider();
-  if (!pk || !provider) return null;
-  try { return new ethers.Wallet(pk, provider); } catch { return null; }
-}
+import {
+  getNetworkConfig,
+  getStrategyConfig,
+  isDryRun,
+} from '../config/networks.js';
+import { recordRun } from './events';
+import {
+  createExecution,
+  updateExecution,
+  type ExecutionStep,
+  type ExecutionStatus,
+} from './executions';
 
 const ABI = [
-  'function requestFlashLoan(address token, uint256 amount, bool buyOnA) external',
+  'function requestFlashLoan(address token, uint256 amount, bool buyOnA, uint256 minProfit) external',
+  'function withdraw(address token) external',
+  'function slippageToleranceBps() view returns (uint256)',
+  'function dexA() view returns (address)',
+  'function dexB() view returns (address)',
+  'function tokenB() view returns (address)',
   'event LoanExecuted(address indexed token, uint256 amount, bool buyOnA)',
   'event StepCompleted(string step, uint256 amountOut)',
   'event ArbitrageResult(bool profitable, uint256 profit)',
+  'event Withdrawn(address indexed token, uint256 amount)',
 ];
 
-export type StepName = 'loan_taken' | 'swap_1' | 'swap_2' | 'repaid';
-export type StepData = { step: StepName; gasUsedCumulative: number; timestamp: number };
+const ERC20_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+];
 
-export const activeSimulations = new Map<string, {
-  status: 'pending' | 'success' | 'reverted' | 'dry_run';
-  steps: StepData[];
-  currentStep: number;
-  startTime: number;
-  txHash: string;
-}>();
-
-function getDb() {
-  try {
-    const dbPath = path.join(process.cwd(), 'bot_data.sqlite');
-    const db = new Database(dbPath);
-    db.exec(`CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, network TEXT NOT NULL, txHash TEXT, status TEXT NOT NULL, gasUsed INTEGER, elapsedMs INTEGER, loanSizeWeth REAL NOT NULL, profitWeth REAL)`);
-    return db;
-  } catch { return null; }
+function randomHash(): string {
+  return (
+    '0x' +
+    Array.from({ length: 64 }, () =>
+      Math.floor(Math.random() * 16).toString(16)
+    ).join('')
+  );
 }
 
-export async function requestFlashLoan(amountWeth?: string, buyOnA?: boolean): Promise<string> {
-  const cfg = getCfg();
-  const loanSizeWeth = amountWeth || '0.5';
-  const buyOnAFlag = buyOnA ?? false;
-
-  // Dry-run short-circuit — no tx, log to DB, return synthetic hash
-  if (DRY_RUN) {
-    const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const now = Date.now();
-    activeSimulations.set(txHash, {
-      status: 'dry_run',
-      steps: [
-        { step: 'loan_taken', gasUsedCumulative: 0, timestamp: now },
-        { step: 'swap_1', gasUsedCumulative: 0, timestamp: now + 100 },
-        { step: 'swap_2', gasUsedCumulative: 0, timestamp: now + 200 },
-        { step: 'repaid', gasUsedCumulative: 0, timestamp: now + 300 },
-      ],
-      currentStep: 4,
-      startTime: now,
-      txHash,
-    });
-    try {
-      const db = getDb();
-      db?.prepare('INSERT INTO runs (ts, network, txHash, status, gasUsed, elapsedMs, loanSizeWeth, profitWeth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(Date.now(), NETWORK, txHash, 'dry_run', null, 0, Number(loanSizeWeth), null);
-    } catch {}
-    return txHash;
-  }
-
-  const provider = getProvider();
-  const wallet = getWallet();
-
-  // Fallback to simulation if no live wallet/provider (dev without node)
-  if (!provider || !wallet) {
-    const txHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const now = Date.now();
-    activeSimulations.set(txHash, { status: 'pending', steps: [], currentStep: 0, startTime: now, txHash });
-    simulateSteps(txHash);
-    return txHash;
-  }
-
-  const contract = new ethers.Contract(cfg.CONTRACT_ADDRESS, ABI, wallet);
-  let amountWei: bigint;
-  try { amountWei = ethers.parseUnits(loanSizeWeth, 18); } catch { amountWei = ethers.parseUnits('0.5', 18); }
-
-  const tx = await contract.requestFlashLoan(cfg.WETH, amountWei, buyOnAFlag, { gasLimit: 500000 });
-  const txHash: string = tx.hash;
-  const startTime = Date.now();
-  activeSimulations.set(txHash, { status: 'pending', steps: [], currentStep: 0, startTime, txHash });
-
-  // Background: wait for receipt and populate steps
-  (async () => {
-    try {
-      const receipt = await tx.wait();
-      const sim = activeSimulations.get(txHash);
-      if (!sim) return;
-      const gasUsed = Number(receipt.gasUsed);
-      const ts = Date.now();
-      if (receipt.status === 1) {
-        // Derive steps from receipt events if present, else synthesize 4 steps
-        let steps: StepData[] = [];
-        try {
-          const iface = new ethers.Interface(ABI);
-          const stepEvents = receipt.logs.map((l: any) => { try { return iface.parseLog(l); } catch { return null; } }).filter(Boolean);
-          const hasLoan = stepEvents.some((e: any) => e.name === 'LoanExecuted');
-          const swapCount = stepEvents.filter((e: any) => e.name === 'StepCompleted').length;
-          const hasResult = stepEvents.some((e: any) => e.name === 'ArbitrageResult');
-          if (hasLoan || swapCount > 0) {
-            let idx = 0;
-            if (hasLoan) steps.push({ step: 'loan_taken', gasUsedCumulative: Math.floor(gasUsed * 0.2), timestamp: ts });
-            if (swapCount >= 1) steps.push({ step: 'swap_1', gasUsedCumulative: Math.floor(gasUsed * 0.5), timestamp: ts + 50 });
-            if (swapCount >= 2) steps.push({ step: 'swap_2', gasUsedCumulative: Math.floor(gasUsed * 0.8), timestamp: ts + 100 });
-            if (hasResult) steps.push({ step: 'repaid', gasUsedCumulative: gasUsed, timestamp: ts + 150 });
-            if (steps.length === 0) steps = synthSteps(gasUsed, ts);
-          } else {
-            steps = synthSteps(gasUsed, ts);
-          }
-        } catch {
-          steps = synthSteps(gasUsed, ts);
-        }
-        sim.steps = steps;
-        sim.currentStep = steps.length;
-        sim.status = 'success';
-        try {
-          const db = getDb();
-          const profit = (() => { try { const ev = receipt.logs.find((l:any)=>{try{return new ethers.Interface(ABI).parseLog(l)?.name==='ArbitrageResult'}catch{return false}}); if(ev){const parsed=new ethers.Interface(ABI).parseLog(ev); if(parsed) return Number(ethers.formatUnits(parsed.args[1],18));} return null;} catch{return null}})();
-          db?.prepare('INSERT INTO runs (ts, network, txHash, status, gasUsed, elapsedMs, loanSizeWeth, profitWeth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(Date.now(), NETWORK, txHash, 'success', gasUsed, Date.now() - startTime, Number(loanSizeWeth), profit);
-        } catch {}
-      } else {
-        sim.status = 'reverted';
-        sim.steps = synthSteps(gasUsed, ts).slice(0, 1);
-        sim.currentStep = sim.steps.length;
-        try { const db=getDb(); db?.prepare('INSERT INTO runs (ts, network, txHash, status, gasUsed, elapsedMs, loanSizeWeth, profitWeth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(Date.now(), NETWORK, txHash, 'reverted', gasUsed, Date.now()-startTime, Number(loanSizeWeth), null);} catch{}
-      }
-    } catch (e: any) {
-      const sim = activeSimulations.get(txHash);
-      if (sim) { sim.status = 'reverted'; }
-      try { const db=getDb(); db?.prepare('INSERT INTO runs (ts, network, txHash, status, gasUsed, elapsedMs, loanSizeWeth, profitWeth) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(Date.now(), NETWORK, txHash, 'error', null, Date.now()-startTime, Number(loanSizeWeth), null);} catch{}
-    }
-  })();
-
-  return txHash;
-}
-
-function synthSteps(gasUsed: number, ts: number): StepData[] {
+function synthSteps(gasUsed: number, ts: number): ExecutionStep[] {
   return [
-    { step: 'loan_taken', gasUsedCumulative: Math.floor(gasUsed * 0.25), timestamp: ts },
-    { step: 'swap_1', gasUsedCumulative: Math.floor(gasUsed * 0.55), timestamp: ts + 40 },
-    { step: 'swap_2', gasUsedCumulative: Math.floor(gasUsed * 0.85), timestamp: ts + 80 },
+    {
+      step: 'loan_taken',
+      gasUsedCumulative: Math.floor(gasUsed * 0.25),
+      timestamp: ts,
+    },
+    {
+      step: 'swap_1',
+      gasUsedCumulative: Math.floor(gasUsed * 0.55),
+      timestamp: ts + 40,
+    },
+    {
+      step: 'swap_2',
+      gasUsedCumulative: Math.floor(gasUsed * 0.85),
+      timestamp: ts + 80,
+    },
     { step: 'repaid', gasUsedCumulative: gasUsed, timestamp: ts + 120 },
   ];
 }
 
-async function simulateSteps(txHash: string) {
-  const sim = activeSimulations.get(txHash);
-  if (!sim) return;
-  const steps: StepName[] = ['loan_taken', 'swap_1', 'swap_2', 'repaid'];
-  for (let i = 0; i < steps.length; i++) {
-    await new Promise(r => setTimeout(r, 1200 + Math.random() * 800));
-    const cur = activeSimulations.get(txHash);
-    if (!cur) return;
-    cur.steps.push({ step: steps[i], gasUsedCumulative: 150000 + Math.floor(Math.random() * 50000) + i * 60000, timestamp: Date.now() });
-    cur.currentStep = cur.steps.length;
+function stepsFromReceipt(
+  receipt: ethers.TransactionReceipt,
+  fallbackGas: number,
+  ts: number
+): ExecutionStep[] {
+  const iface = new ethers.Interface(ABI);
+  const parsed = receipt.logs
+    .map((logItem) => {
+      try {
+        return iface.parseLog(logItem);
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is ethers.LogDescription => item !== null);
+
+  const hasLoan = parsed.some((item) => item.name === 'LoanExecuted');
+  const swapCount = parsed.filter((item) => item.name === 'StepCompleted').length;
+  const hasResult = parsed.some((item) => item.name === 'ArbitrageResult');
+  const gasUsed = Number(receipt.gasUsed) || fallbackGas;
+
+  if (!hasLoan && swapCount === 0 && !hasResult) {
+    return synthSteps(gasUsed, ts);
   }
-  const final = activeSimulations.get(txHash);
-  if (final) final.status = 'success';
+
+  const steps: ExecutionStep[] = [];
+  if (hasLoan) {
+    steps.push({
+      step: 'loan_taken',
+      gasUsedCumulative: Math.floor(gasUsed * 0.2),
+      timestamp: ts,
+    });
+  }
+  if (swapCount >= 1) {
+    steps.push({
+      step: 'swap_1',
+      gasUsedCumulative: Math.floor(gasUsed * 0.5),
+      timestamp: ts + 50,
+    });
+  }
+  if (swapCount >= 2) {
+    steps.push({
+      step: 'swap_2',
+      gasUsedCumulative: Math.floor(gasUsed * 0.8),
+      timestamp: ts + 100,
+    });
+  }
+  if (hasResult) {
+    steps.push({ step: 'repaid', gasUsedCumulative: gasUsed, timestamp: ts + 150 });
+  }
+
+  return steps.length > 0 ? steps : synthSteps(gasUsed, ts);
+}
+
+function extractProfitWeth(receipt: ethers.TransactionReceipt): number | null {
+  const iface = new ethers.Interface(ABI);
+  for (const logItem of receipt.logs) {
+    try {
+      const parsed = iface.parseLog(logItem);
+      if (parsed && parsed.name === 'ArbitrageResult') {
+        return Number(ethers.formatUnits(parsed.args[1], 18));
+      }
+    } catch {
+      // Not one of our events.
+    }
+  }
+  return null;
+}
+
+function validateAmount(amountWeth: string, minLoan: string, maxLoan: string) {
+  const amount = Number(amountWeth);
+  const min = Number(minLoan);
+  const max = Number(maxLoan);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('Invalid loan amount');
+  }
+  if (amount < min || amount > max) {
+    throw new Error(`Loan amount must be between ${minLoan} and ${maxLoan} WETH`);
+  }
+}
+
+async function withdrawProfit(
+  contract: ethers.Contract,
+  wallet: ethers.Wallet,
+  rpc: ReturnType<typeof getNetworkConfig>
+): Promise<void> {
+  const weth = new ethers.Contract(rpc.loanToken.address, ERC20_ABI, wallet);
+  const balance = await weth.balanceOf(rpc.contractAddress);
+  if (balance === BigInt(0)) return;
+  const tx = await contract.withdraw(rpc.loanToken.address);
+  await tx.wait();
+}
+
+/**
+ * Execute the configured flash-loan arbitrage.
+ *
+ * Returns the transaction hash. In dry-run mode the hash is synthetic and no
+ * transaction is sent. In live mode a missing wallet, RPC, contract address, or
+ * deployed bytecode is a hard error (fail closed).
+ */
+export async function requestFlashLoan(
+  amountWeth?: string,
+  buyOnA?: boolean,
+  minProfitWeth?: string
+): Promise<string> {
+  const cfg = getNetworkConfig();
+  const strategy = getStrategyConfig();
+  const dryRun = isDryRun();
+
+  const loanSizeWeth = amountWeth || strategy.minLoanWeth;
+  validateAmount(loanSizeWeth, strategy.minLoanWeth, strategy.maxLoanWeth);
+
+  const buyOnAFlag = buyOnA ?? false;
+  const minProfit = minProfitWeth || strategy.minNetProfitWeth;
+  if (!Number.isFinite(Number(minProfit)) || Number(minProfit) < 0) {
+    throw new Error('Invalid minProfit');
+  }
+
+  if (dryRun) {
+    const txHash = randomHash();
+    const now = Date.now();
+    const steps: ExecutionStep[] = [
+      { step: 'loan_taken', gasUsedCumulative: 0, timestamp: now },
+      { step: 'swap_1', gasUsedCumulative: 0, timestamp: now + 100 },
+      { step: 'swap_2', gasUsedCumulative: 0, timestamp: now + 200 },
+      { step: 'repaid', gasUsedCumulative: 0, timestamp: now + 300 },
+    ];
+    createExecution(txHash, 'dry_run', steps);
+    recordRun({
+      network: cfg.key,
+      txHash,
+      status: 'dry_run',
+      gasUsed: null,
+      elapsedMs: 0,
+      loanSizeWeth,
+      profitWeth: null,
+    });
+    return txHash;
+  }
+
+  if (!cfg.rpcUrl) throw new Error(`RPC URL not configured (${cfg.rpcEnv || 'RPC'})`);
+  if (!cfg.contractAddress) {
+    throw new Error(`Contract address not configured (${cfg.contractEnv})`);
+  }
+  if (!process.env.PRIVATE_KEY) {
+    throw new Error('PRIVATE_KEY not configured');
+  }
+
+  const provider = new ethers.JsonRpcProvider(cfg.rpcUrl);
+  const network = await provider.getNetwork();
+  if (!cfg.skipChainCheck && Number(network.chainId) !== cfg.chainId) {
+    throw new Error(
+      `RPC chain ID ${Number(network.chainId)} does not match ${cfg.key} (${cfg.chainId})`
+    );
+  }
+
+  const code = await provider.getCode(cfg.contractAddress);
+  if (code === '0x') {
+    throw new Error(`No contract bytecode at ${cfg.contractAddress}`);
+  }
+
+  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+  const contract = new ethers.Contract(cfg.contractAddress, ABI, wallet);
+  const amountWei = ethers.parseUnits(loanSizeWeth, 18);
+  const minProfitWei = ethers.parseUnits(minProfit, 18);
+
+  const startTime = Date.now();
+  const gasEstimate = await contract.requestFlashLoan.estimateGas(
+    cfg.loanToken.address,
+    amountWei,
+    buyOnAFlag,
+    minProfitWei
+  );
+  const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100);
+  const tx = await contract.requestFlashLoan(
+    cfg.loanToken.address,
+    amountWei,
+    buyOnAFlag,
+    minProfitWei,
+    { gasLimit }
+  );
+
+  createExecution(tx.hash, 'pending');
+
+  void (async () => {
+    try {
+      const receipt = await tx.wait();
+      if (!receipt) {
+        updateExecution(tx.hash, 'error', []);
+        recordRun({
+          network: cfg.key,
+          txHash: tx.hash,
+          status: 'error',
+          gasUsed: null,
+          elapsedMs: Date.now() - startTime,
+          loanSizeWeth,
+          profitWeth: null,
+        });
+        return;
+      }
+
+      const ts = Date.now();
+      const gasUsed = Number(receipt.gasUsed);
+
+      if (receipt.status === 1) {
+        const steps = stepsFromReceipt(receipt, gasUsed, ts);
+        const profit = extractProfitWeth(receipt);
+        updateExecution(tx.hash, 'success', steps);
+        recordRun({
+          network: cfg.key,
+          txHash: tx.hash,
+          status: 'success',
+          gasUsed,
+          elapsedMs: Date.now() - startTime,
+          loanSizeWeth,
+          profitWeth: profit,
+        });
+        try {
+          await withdrawProfit(contract, wallet, cfg);
+        } catch (err) {
+          console.warn('Profit withdraw failed:', err);
+        }
+      } else {
+        updateExecution(tx.hash, 'reverted', synthSteps(gasUsed, ts).slice(0, 1));
+        recordRun({
+          network: cfg.key,
+          txHash: tx.hash,
+          status: 'reverted',
+          gasUsed,
+          elapsedMs: Date.now() - startTime,
+          loanSizeWeth,
+          profitWeth: null,
+        });
+      }
+    } catch (err: unknown) {
+      const status: ExecutionStatus = 'error';
+      updateExecution(tx.hash, status, []);
+      recordRun({
+        network: cfg.key,
+        txHash: tx.hash,
+        status,
+        gasUsed: null,
+        elapsedMs: Date.now() - startTime,
+        loanSizeWeth,
+        profitWeth: null,
+      });
+      console.error('Execution failed:', err);
+    }
+  })();
+
+  return tx.hash;
 }

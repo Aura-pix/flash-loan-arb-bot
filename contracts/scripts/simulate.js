@@ -65,7 +65,7 @@ async function simulate() {
 
   console.log("\nExecuting flash loan...");
   try {
-    const tx = await contract.requestFlashLoan(WETH, ethers.parseUnits("1", 18), false, {
+    const tx = await contract.requestFlashLoan(WETH, ethers.parseUnits("1", 18), false, 0, {
       gasLimit: 3000000,
     });
     console.log("Transaction sent:", tx.hash);

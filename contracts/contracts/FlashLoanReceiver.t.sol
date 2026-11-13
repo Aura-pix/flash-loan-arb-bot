@@ -66,7 +66,7 @@ contract FlashLoanReceiverTest is Test {
 
     function testRequestFlashLoanOnlyOwner() public {
         vm.prank(other);
-        try receiver.requestFlashLoan(address(weth), 0.1 ether, true) {
+        try receiver.requestFlashLoan(address(weth), 0.1 ether, true, 0) {
             revert("should revert not owner");
         } catch Error(string memory reason) {
             require(keccak256(bytes(reason)) == keccak256(bytes("Not owner")), "wrong");
@@ -74,9 +74,9 @@ contract FlashLoanReceiverTest is Test {
     }
 
     function testRequestFlashLoanEmitsAndBuyOnA() public {
-        receiver.requestFlashLoan(address(weth), 0.1 ether, true);
+        receiver.requestFlashLoan(address(weth), 0.1 ether, true, 0);
         require(receiver.buyOnA() == true, "buyOnA true");
-        receiver.requestFlashLoan(address(weth), 0.1 ether, false);
+        receiver.requestFlashLoan(address(weth), 0.1 ether, false, 0);
         require(receiver.buyOnA() == false, "buyOnA false");
     }
 
@@ -122,17 +122,44 @@ contract FlashLoanReceiverTest is Test {
     function testNonReentrantScoped() public {
         // If nonReentrant also on receiveFlashLoan, the vault callback would revert with Reentrant call
         // This succeeding proves it's correctly scoped to outer only
-        receiver.requestFlashLoan(address(weth), 0.05 ether, true);
+        receiver.requestFlashLoan(address(weth), 0.05 ether, true, 0);
         require(receiver.buyOnA() == true, "scoped");
     }
 
     function testProfitableExecution() public {
-        // With dexA 3400 > dexB 3000, buyOnA true (sell dexA high, buy dexB low) should be profitable
-        // Mock mints, so balance will be > loan
+        // With dexA 3400 > dexB 3000, buyOnA true (sell dexA high, buy dexB low) should be profitable.
+        // The mock returns 1.1x per leg, so 0.1 WETH -> 0.121 WETH, minus 0.1 repayment = 0.021 profit.
         uint256 loan = 0.1 ether;
-        receiver.requestFlashLoan(address(weth), loan, true);
-        // After successful arb, profit remains (mock mints), withdraw should have something
-        // At least the call didn't revert
+        receiver.requestFlashLoan(address(weth), loan, true, 0);
         require(receiver.buyOnA() == true, "profit buyOnA");
+        require(weth.balanceOf(address(receiver)) == 0.021 ether, "profit amount");
+    }
+
+    function testMinProfitEnforced() public {
+        // 0.1 WETH produces 0.021 WETH profit; demanding 1 WETH must revert.
+        vm.expectRevert(bytes("Below min profit"));
+        receiver.requestFlashLoan(address(weth), 0.1 ether, true, 1 ether);
+    }
+
+    function testStartingBalanceNotCountedAsProfit() public {
+        // A pre-funded contract must not treat its own balance as profit.
+        weth.mint(address(receiver), 0.5 ether);
+        vm.expectRevert(bytes("Below min profit"));
+        receiver.requestFlashLoan(address(weth), 0.1 ether, true, 0.1 ether);
+
+        uint256 before = weth.balanceOf(address(receiver));
+        receiver.requestFlashLoan(address(weth), 0.1 ether, true, 0.02 ether);
+        require(weth.balanceOf(address(receiver)) == before + 0.021 ether, "profit");
+    }
+
+    function testConstructorValidation() public {
+        vm.expectRevert(bytes("dexA zero"));
+        new FlashLoanReceiver(address(0), address(dexB), address(usdc));
+        vm.expectRevert(bytes("dexB zero"));
+        new FlashLoanReceiver(address(dexA), address(0), address(usdc));
+        vm.expectRevert(bytes("tokenB zero"));
+        new FlashLoanReceiver(address(dexA), address(dexB), address(0));
+        vm.expectRevert(bytes("Routers must differ"));
+        new FlashLoanReceiver(address(dexA), address(dexA), address(usdc));
     }
 }

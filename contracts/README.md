@@ -26,15 +26,19 @@ npm test
 
 ## Deploy
 
-The deployment script defaults to Sepolia. Create `contracts/.env` with the private key of a dedicated test wallet and the RPC URL for the selected network:
+The deployment script requires an explicit `NETWORK`. Create `contracts/.env` with the private key of a dedicated wallet and the RPC URL for the selected network:
 
 ```dotenv
-NETWORK=sepolia
+NETWORK=base
 PRIVATE_KEY=
+BASE_RPC_URL=
+ARBITRUM_RPC_URL=
 SEPOLIA_RPC_URL=
-# To deploy to Arbitrum instead:
-# NETWORK=arbitrum
-# ARBITRUM_RPC_URL=
+# Required for a mainnet deployment:
+CONFIRM_DEPLOY=1
+# Optional V2 venue overrides (venue id or router address):
+DEX_A=
+DEX_B=
 ```
 
 After compiling, run:
@@ -43,7 +47,9 @@ After compiling, run:
 node scripts/deploy.js
 ```
 
-The script selects Sepolia unless `NETWORK=arbitrum`, checks the wallet's native-token balance, deploys `FlashLoanReceiver` with the network's configured SushiSwap router, Uniswap V2 router, and USDC token, and prints the deployed address. It does not update the dashboard/scanner's configured contract address automatically. Update the matching `CONTRACT_ADDRESS` or `ARBITRUM_CONTRACT_ADDRESS` in `arb-bot/.env.local` yourself, and verify deployment bytecode, router addresses, token addresses, and available liquidity before any interaction.
+The script verifies the RPC chain ID, checks that every configured token/router/vault address has bytecode, prints the pair reserves for both V2 venues, and refuses to deploy to Base or Arbitrum unless `CONFIRM_DEPLOY=1` is set. It deploys `FlashLoanReceiver` with the selected SushiSwap/Uniswap-V2-style routers and quote token, then prints the deployed address and the environment variable to set (`BASE_CONTRACT_ADDRESS` or `ARBITRUM_CONTRACT_ADDRESS`). It does not update the dashboard/scanner configuration automatically. Verify deployment bytecode, router addresses, token addresses, and available liquidity before any interaction.
+
+The current contract is V2/V2 only. Base does not have a second deep V2 WETH/USDC venue, so the Base V2/V3 receiver is the next phase; do not deploy the V2/V2 contract to Base expecting it to trade.
 
 A successful deployment only proves that the contract was created. The existence of a router address does not establish that both routers support the target pair or have useful liquidity.
 
@@ -55,19 +61,18 @@ The contract constructor accepts the two DEX router addresses and the second swa
 - Request a flash loan for a token and amount, selecting the swap direction.
 - Withdraw a token balance held by the receiver contract.
 
-On the Balancer callback, the receiver swaps the loan asset to `tokenB` on one router, swaps back on the other, checks that it can repay principal plus the Balancer fee, repays the vault, and emits execution events. The transaction reverts if repayment cannot be made. The contract does not enforce the off-chain scanner's estimated-profit threshold.
+On the Balancer callback, the receiver swaps the loan asset to `tokenB` on one router, swaps back on the other, checks that it can repay principal plus the Balancer fee without consuming any pre-existing balance, enforces the caller-supplied `minProfit`, repays the vault, and emits execution events. `requestFlashLoan(token, amount, buyOnA, minProfit)` reverts with `Below min profit` if the realized profit is below the requested floor. The transaction reverts if repayment cannot be made.
 
 ## Scanner operation
 
-The scanner reads `NETWORK`, `DRY_RUN`, `PRIVATE_KEY`, RPC URLs, contract address overrides, and optional strategy thresholds from environment variables. It supports `anvil-fork`, `sepolia`, and `arbitrum`; defaults and network addresses are defined in `scripts/scanner.js`.
-
-For a safer initial run, configure an RPC endpoint, keep `DRY_RUN=true`, and start it from this directory:
+`contracts/scripts/scanner.js` is a deprecated compatibility wrapper around the canonical scanner at `../arb-bot/scanner-service/scanner.js`. Prefer running the scanner from `arb-bot`:
 
 ```powershell
-node scripts/scanner.js
+cd ..\arb-bot
+node scanner-service/scanner.js
 ```
 
-The scanner polls every 10 seconds, writes structured JSON events to stdout, and attempts to mirror scans/runs into `arb-bot/bot_data.sqlite` when that path and the `better-sqlite3` dependency are available. It may initiate a live transaction only when dry-run mode is disabled and the wallet, RPC, contract, routers, and network configuration are all usable. Validate all of these settings before enabling live transactions.
+The scanner reads `NETWORK`, `DRY_RUN`, `PRIVATE_KEY`, RPC URLs, contract address overrides, `QUOTE_TOKEN`, and optional strategy thresholds from the environment. It supports `anvil-fork`, `sepolia`, `arbitrum`, and `base`. The network, token, and venue addresses live in `arb-bot/config/networks.js`.
 
 ## Safety notes
 

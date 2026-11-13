@@ -63,6 +63,11 @@ contract FlashLoanReceiver {
     }
 
     constructor(address _dexA, address _dexB, address _tokenB) {
+        require(_dexA != address(0), "dexA zero");
+        require(_dexB != address(0), "dexB zero");
+        require(_tokenB != address(0), "tokenB zero");
+        require(_dexA != _dexB, "Routers must differ");
+
         owner = msg.sender;
         dexA = _dexA;
         dexB = _dexB;
@@ -74,11 +79,15 @@ contract FlashLoanReceiver {
         slippageToleranceBps = _bps;
     }
 
-    function requestFlashLoan(address token, uint256 amount, bool _buyOnA)
-        external
-        onlyOwner
-        nonReentrant
-    {
+    function requestFlashLoan(
+        address token,
+        uint256 amount,
+        bool _buyOnA,
+        uint256 minProfit
+    ) external onlyOwner nonReentrant {
+        require(token != address(0), "token zero");
+        require(amount > 0, "amount zero");
+
         buyOnA = _buyOnA;
 
         address[] memory tokens = new address[](1);
@@ -87,7 +96,15 @@ contract FlashLoanReceiver {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = amount;
 
-        IVault(BALANCER_VAULT).flashLoan(address(this), tokens, amounts, "");
+        // The callback must not count any pre-existing balance as profit.
+        uint256 startingBalance = IERC20(token).balanceOf(address(this));
+
+        IVault(BALANCER_VAULT).flashLoan(
+            address(this),
+            tokens,
+            amounts,
+            abi.encode(minProfit, startingBalance)
+        );
 
         emit LoanExecuted(token, amount, _buyOnA);
     }
@@ -96,9 +113,16 @@ contract FlashLoanReceiver {
         address[] memory tokens,
         uint256[] memory amounts,
         uint256[] memory feeAmounts,
-        bytes memory /* userData */
+        bytes memory userData
     ) external {
         require(msg.sender == BALANCER_VAULT, "Not Balancer");
+        require(tokens.length == 1 && amounts.length == 1, "Bad loan");
+
+        uint256 minProfit;
+        uint256 startingBalance;
+        if (userData.length == 64) {
+            (minProfit, startingBalance) = abi.decode(userData, (uint256, uint256));
+        }
 
         address asset = tokens[0];
         uint256 amount = amounts[0];
@@ -139,13 +163,17 @@ contract FlashLoanReceiver {
         uint256 assetReceived = amountsB[amountsB.length - 1];
         emit StepCompleted("swap2", assetReceived);
 
-        // Step 3: repay Balancer
+        // Step 3: repay Balancer and enforce the requested minimum profit
         uint256 assetBalance = IERC20(asset).balanceOf(address(this));
-        require(assetBalance >= totalRepayment, "Insufficient balance to repay flash loan");
+        require(
+            assetBalance >= totalRepayment + startingBalance,
+            "Insufficient balance to repay flash loan"
+        );
 
         IERC20(asset).transfer(BALANCER_VAULT, totalRepayment);
 
-        uint256 profit = assetBalance - totalRepayment;
+        uint256 profit = assetBalance - totalRepayment - startingBalance;
+        require(profit >= minProfit, "Below min profit");
         emit ArbitrageResult(profit > 0, profit);
     }
 
